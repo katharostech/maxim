@@ -1,4 +1,4 @@
-//! Implements the [`ActorSystem`] and related types of Axiom.
+//! Implements the [`ActorSystem`] and related types of Conjecture.
 //!
 //! When the [`ActorSystem`] starts up, a number of Reactors will be spawned that will iterate over
 //! Actor's inbound messages, processing them asynchronously. Actors will be ran as many times as
@@ -7,12 +7,12 @@
 //! messages, it will be returned to the Executor until it has messages again. This process cycles
 //! until the [`ActorSystem`] is shutdown.
 //!
-//! The user should refer to test cases and examples as "how-to" guides for using Axiom.
+//! The user should refer to test cases and examples as "how-to" guides for using Conjecture.
 
 #[cfg(feature = "actor-pool")]
 use crate::actors::ActorPoolBuilder;
 use crate::actors::{Actor, ActorBuilder, ActorStream};
-use crate::executor::AxiomExecutor;
+use crate::executor::ConjectureExecutor;
 use crate::prelude::*;
 use crate::system::system_actor::SystemActor;
 use dashmap::DashMap;
@@ -88,7 +88,7 @@ pub enum WireMessage {
     },
 }
 
-/// Configuration structure for the Axiom actor system. Note that this configuration implements
+/// Configuration structure for the Conjecture actor system. Note that this configuration implements
 /// serde serialize and deserialize to allow users to read the config from any serde supported
 /// means.
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -259,7 +259,7 @@ pub(crate) struct ActorSystemData {
     /// Holds handles to the pool of threads processing the work channel.
     threads: Mutex<Vec<JoinHandle<()>>>,
     /// The Executor responsible for managing the runtime of the Actors
-    executor: AxiomExecutor,
+    executor: ConjectureExecutor,
     /// Whether the ActorSystem has started or not.
     started: AtomicBool,
     /// A flag and condvar that can be used to send a signal when the system begins to shutdown.
@@ -299,7 +299,7 @@ impl ActorSystem {
         let threads = Mutex::new(Vec::with_capacity(config.thread_pool_size as usize));
         let shutdown_triggered = Arc::new((Mutex::new(false), Condvar::new()));
 
-        let executor = AxiomExecutor::new(shutdown_triggered.clone());
+        let executor = ConjectureExecutor::new(shutdown_triggered.clone());
 
         let start_on_launch = config.start_on_launch;
 
@@ -667,7 +667,7 @@ impl ActorSystem {
     ///
     /// # Examples
     /// ```
-    /// use axiom::prelude::*;
+    /// use conjecture::prelude::*;
     ///
     /// let system = ActorSystem::create(ActorSystemConfig::default().thread_pool_size(2));
     ///
@@ -700,7 +700,7 @@ impl ActorSystem {
     ///
     /// # Examples
     /// ```
-    /// use axiom::prelude::*;
+    /// use conjecture::prelude::*;
     ///
     /// let system = ActorSystem::create(ActorSystemConfig::default().thread_pool_size(2));
     ///
@@ -874,7 +874,7 @@ impl ActorSystem {
     }
 
     #[cfg(test)]
-    pub(crate) fn executor(&self) -> &AxiomExecutor {
+    pub(crate) fn executor(&self) -> &ConjectureExecutor {
         &self.data.executor
     }
 }

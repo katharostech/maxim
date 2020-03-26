@@ -1,6 +1,6 @@
 //! An implementation of the Chandy & Misra solution to the classic finite state machine (FSM)
 //! concurrency problem known as [Dining Philosophers]
-//! (https://en.wikipedia.org/wiki/Dining_philosophers_problem) problem using Axiom.
+//! (https://en.wikipedia.org/wiki/Dining_philosophers_problem) problem using Conjecture.
 //!
 //! # Demonstrated in this Example:
 //!   * Basic usage of Actors to solve a classic problem in concurrency.
@@ -20,7 +20,7 @@
 //! panics ensue. Some FSM implementations might be quite a bit more lose, preferring to ignore
 //! badly timed messages. This is largely up to the user.
 
-use axiom::prelude::*;
+use conjecture::prelude::*;
 use log::LevelFilter;
 use log::{error, info};
 use serde::{Deserialize, Serialize};

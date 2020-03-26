@@ -1,7 +1,7 @@
 //! The Executor is responsible for the high-level scheduling of Actors.
 
 use crate::actors::ActorStream;
-use crate::executor::thread_pool::AxiomThreadPool;
+use crate::executor::thread_pool::ConjectureThreadPool;
 use crate::prelude::*;
 use dashmap::DashMap;
 use futures::task::ArcWake;
@@ -20,20 +20,20 @@ mod thread_pool;
 /// sent message, the Executor will check load balancing data and queue it in the Reactor with the
 /// least load.
 #[derive(Clone)]
-pub(crate) struct AxiomExecutor {
+pub(crate) struct ConjectureExecutor {
     /// The system's "is shutting down" flag.
     shutdown_triggered: Arc<(Mutex<bool>, Condvar)>,
     /// Barrier to await shutdown on.
-    thread_pool: Arc<AxiomThreadPool>,
+    thread_pool: Arc<ConjectureThreadPool>,
     /// Actors that have no messages available.
     sleeping: Arc<DashMap<Aid, Task>>,
     /// All Reactors owned by this Executor.
-    reactors: Arc<DashMap<u16, AxiomReactor>>,
+    reactors: Arc<DashMap<u16, ConjectureReactor>>,
     /// Counting actors per reactor for even distribution of Actors.
     actors_per_reactor: Arc<DashMap<u16, u32>>,
 }
 
-impl AxiomExecutor {
+impl ConjectureExecutor {
     /// Creates a new Executor with the given actor system configuration. This will govern the
     /// configuration of the executor.
     pub(crate) fn new(shutdown_triggered: Arc<(Mutex<bool>, Condvar)>) -> Self {
@@ -46,12 +46,12 @@ impl AxiomExecutor {
         }
     }
 
-    /// Initializes the executor and starts the AxiomReactor instances based on the count of the
+    /// Initializes the executor and starts the ConjectureReactor instances based on the count of the
     /// number of threads configured in the actor system. This must be called before any work can
     /// be performed with the actor system.
     pub(crate) fn init(&self, system: &ActorSystem) {
         for i in 0..system.data.config.thread_pool_size {
-            let reactor = AxiomReactor::new(self.clone(), system, i);
+            let reactor = ConjectureReactor::new(self.clone(), system, i);
             self.reactors.insert(i, reactor.clone());
             self.actors_per_reactor.insert(i, 0);
             let sys = system.clone();
@@ -61,7 +61,7 @@ impl AxiomExecutor {
                     sys.init_current();
                     futures::executor::enter().expect("Executor nested in other executor");
                     loop {
-                        // `AxiomReactor::thread` returns true if it's set to be ran again.
+                        // `ConjectureReactor::thread` returns true if it's set to be ran again.
                         if !reactor.thread() {
                             break;
                         }
@@ -118,7 +118,7 @@ impl AxiomExecutor {
 
     /// When a Reactor is done with an task, it will be sent here, and the Executor will decrement
     /// the Actor count for that Reactor.
-    fn return_task(&self, task: Task, reactor: &AxiomReactor) {
+    fn return_task(&self, task: Task, reactor: &ConjectureReactor) {
         trace!(
             "Actor {} returned from Reactor {}",
             task.id.name_or_uuid(),
@@ -161,13 +161,13 @@ pub enum ShutdownResult {
 /// Actors are added to the Reactor on waking, queued for polling. If they can be polled again, they
 /// are retained till they are depleted of messages or are stopped.
 #[derive(Clone)]
-pub(crate) struct AxiomReactor {
+pub(crate) struct ConjectureReactor {
     /// The ID of the Reactor
     id: u16,
     /// The diagnostic ID of this Reactor.
     name: String,
     /// The Executor that owns this Reactor.
-    executor: AxiomExecutor,
+    executor: ConjectureExecutor,
     /// The queue of Actors that are ready to be polled.
     run_queue: Arc<RwLock<VecDeque<Wakeup>>>,
     /// The queue of Actors this Reactor is responsible for.
@@ -188,13 +188,13 @@ enum LoopResult<T> {
     Continue,
 }
 
-impl AxiomReactor {
+impl ConjectureReactor {
     /// Creates a new Reactor
-    fn new(executor: AxiomExecutor, system: &ActorSystem, id: u16) -> AxiomReactor {
+    fn new(executor: ConjectureExecutor, system: &ActorSystem, id: u16) -> ConjectureReactor {
         let name = format!("{:08x?}-{}", system.data.uuid.as_fields().0, id);
         debug!("Creating Reactor {}", name);
 
-        AxiomReactor {
+        ConjectureReactor {
             id,
             name,
             executor,
@@ -390,7 +390,7 @@ impl Task {
 /// Object used for generating our wakers.
 struct Token {
     id: Aid,
-    reactor: AxiomReactor,
+    reactor: ConjectureReactor,
 }
 
 impl ArcWake for Token {

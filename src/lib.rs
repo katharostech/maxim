@@ -1,17 +1,36 @@
 //! Implementation of a highly-scalable and ergonomic actor model for Rust
 //!
-//! [![Latest version](https://img.shields.io/crates/v/axiom.svg)](https://crates.io/crates/axiom)
-//! [![Build Status](https://api.travis-ci.org/rsimmonsjr/axiom.svg?branch=master)](https://travis-ci.org/rsimmonsjr/axiom)
-//! [![Average time to resolve an issue](https://isitmaintained.com/badge/resolution/rsimmonsjr/axiom.svg)](https://isitmaintained.com/project/rsimmonsjr/axiom)
-//! [![License](https://img.shields.io/crates/l/axiom.svg)](https://github.com/rsimmonsjr/axiom#license)
+//! [![Latest version](https://img.shields.io/crates/v/conjecture.svg)](https://crates.io/crates/conjecture)
+//! [![Average time to resolve an issue](https://isitmaintained.com/badge/resolution/katharostech/conjecture.svg)](https://isitmaintained.com/project/katharostech/conjecture)
+//! [![License](https://img.shields.io/crates/l/conjecture.svg)](https://github.com/rsimmonsjr/conjecture#license)
 //!
-//! # Axiom
+//! # Conjecture
 //!
-//! Axiom brings a highly-scalable actor model to the Rust language based on the many lessons
-//! learned over years of Actor model implementations in Akka and Erlang. Axiom is, however, not a
+//! Conjecture is a fork of the [Axiom](https://github.com/rsimmonsjr/axiom) actor framework that was made so we could push forward our own design decisions while experimenting with our ideas for Actor framework design.
+//!
+//! Conjecture brings a highly-scalable actor model to the Rust language based on the many lessons
+//! learned over years of Actor model implementations in Akka and Erlang. Conjecture is, however, not a
 //! direct re-implementation of either of the two aforementioned actor models but rather a new
 //! implementation deriving inspiration from the good parts of those projects.
 //!
+//! The current development plan for Conjecture is to leave it unreleased for the moment while we experiment with it and add features that we find useful for our test projects. The first thing we added since the fork was a `spawn_pool` feature that allows you to create pools of actors. This and other features we add are likely to change and adapt as we test them in our projects.
+//!
+//! Other things that we are thinking about changing are:
+//!
+//!   - Using [Agnostik](https://github.com/bastion-rs/agnostik) as an executor to allow Conjecture to run on any executor.
+//!     - If Agnostik will not suffice for some reason we will probably switch to Tokio for the executor to avoid maintaining our own.
+//!   - Adding an optional macro for matching on message type
+//!   - Adding an option to use either bounded or unbounded channels for actor messages.
+//!
+//! ## Changelog
+//!
+//! * 2020-3-26
+//!   * Replaced `Axiom` in struct names with `Conjecture`
+//!   * Added `spawn_pool` and `AidPool`s for managing actor pools.
+//!   * Forked Axiom project to Conjecture.
+//! * 2019-12-19 0.2.1
+//!   * Fixed a critical issue where pending Actor Handles were dropped early.
+//!   * Fixed a critical issue where panics weren't caught on poll of Actor Handles.
 //! * 2019-12-06 0.2.0
 //!   * Massive internal refactor in order to support async Actors. There are only a few breaking
 //!   changes, so porting to this version will be relatively simple.
@@ -50,7 +69,7 @@
 //!   same even across major versions, and we recommend using it whenever possible.
 //!   * More `log` points have been added across the codebase.
 //!
-//! [Release Notes for All Versions](https://github.com/rsimmonsjr/axiom/blob/master/RELEASE_NOTES.md)
+//! [Release Notes for All Versions](https://github.com/katharostech/conjecture/blob/master/RELEASE_NOTES.md)
 //!
 //! # Getting Started
 //!
@@ -66,7 +85,7 @@
 //! 6. Actors are location agnostic; they can be sent a message from anywhere in the cluster.
 //!
 //! Note that within the language of Rust, rule five cannot be enforced by Rust but is a best
-//! practice which is important for developers creating actors based on Axiom. In Erlang and
+//! practice which is important for developers creating actors based on Conjecture. In Erlang and
 //! Elixir rule five cannot be violated because of the structure of the language but this also
 //! leads to performance limitations. It's better to allow internal mutable state and encourage
 //! the good practice of not sending mutable messages.
@@ -77,10 +96,10 @@
 //! structures.
 //!
 //! Although programming in the actor model is quite an involved process you can get started with
-//! Axiom in only a few lines of code.
+//! Conjecture in only a few lines of code.
 //!
 //! ```rust
-//! use axiom::prelude::*;
+//! use conjecture::prelude::*;
 //! use std::sync::Arc;
 //! use std::time::Duration;
 //!
@@ -99,7 +118,7 @@
 //! aid.send(Message::new(11)).unwrap();
 //!
 //! // It is worth noting that you probably wouldn't just unwrap in real code but deal with
-//! // the result as a panic in Axiom will take down a dispatcher thread and potentially
+//! // the result as a panic in Conjecture will take down a dispatcher thread and potentially
 //! // hang the system.
 //!
 //! // This will wrap the value `17` in a Message for you!
@@ -116,8 +135,8 @@
 //! This code creates an actor system, fetches a builder for an actor via the `spawn()` method,
 //! spawns an actor and finally sends the actor a message. Once the actor is done processing a
 //! message it returns the new state of the actor and the status after handling this message. In
-//! this case we didnt change the state so we just return it. Creating an Axiom actor is literally
-//! that easy but there is a lot more functionality available as well.
+//! this case we didnt change the state so we just return it. Creating an Conjecture actor is
+//! literally that easy but there is a lot more functionality available as well.
 //!
 //! Keep in mind that if you are capturing variables from the environment you will have to wrap
 //! the `async move {}` block in another block and then move your variables into the first block.
@@ -127,7 +146,7 @@
 //! handles a couple of different message types:
 //!
 //! ```rust
-//! use axiom::prelude::*;
+//! use conjecture::prelude::*;
 //! use std::sync::Arc;
 //!
 //! let system = ActorSystem::create(ActorSystemConfig::default().thread_pool_size(2));
@@ -171,7 +190,7 @@
 //! ```
 //!
 //! This code creates a named actor out of an arbitrary struct. Since the only requirement to make
-//! an actor is to have a function that is compliant with the [`axiom::actors::Processor`] trait,
+//! an actor is to have a function that is compliant with the [`conjecture::actors::Processor`] trait,
 //! anything can be an actor. If this struct had been declared somewhere outside of your control you
 //! could use it in an actor as state by declaring your own handler function and making the calls to
 //! the 3rd party structure.
@@ -181,22 +200,19 @@
 //! a [`Arc`] or [`Mutex`] enclosing a structure as state, that would definitely be a bad idea as it
 //! would break the rules we laid out for actors.
 //!
-//! There is a lot more to learn and explore and your best resource is the test code for Axiom. The
-//! developers have a belief that test code should be well architected and well commented to act as
-//! a set of examples for users of Axiom.
 //!
 //! # Detailed Examples
-//! * [Hello World](https://github.com/rsimmonsjr/axiom/blob/master/examples/hello_world.rs): The
+//! * [Hello World](https://github.com/katharostech/conjecture/blob/master/examples/hello_world.rs): The
 //! obligatory introduction to any computer system.
-//! * [Dining Philosophers](https://github.com/rsimmonsjr/axiom/blob/master/examples/philosophers.rs):
-//! An example of using Axiom to solve a classic Finite State Machine problem in computer science.
-//! * [Monte Carlo](https://github.com/rsimmonsjr/axiom/blob/master/examples/montecarlo.rs): An
-//! example of how to use Axiom for parallel computation.
+//! * [Dining Philosophers](https://github.com/katharostech/conjecture/blob/master/examples/philosophers.rs):
+//! An example of using Conjecture to solve a classic Finite State Machine problem in computer science.
+//! * [Monte Carlo](https://github.com/katharostech/conjecture/blob/master/examples/montecarlo.rs): An
+//! example of how to use Conjecture for parallel computation.
 //!
-//! ## Design Principals of Axiom
+//! ## Design Principals of Conjecture
 //!
-//! Based on previous experience with other actor models I wanted to design Axiom around some
-//! core principles:
+//! These are the core principals of Axiom, the project Conjecture was forked from:
+//!
 //! 1. **At its core an actor is just an function that processes messages.** The simplest actor is a
 //! function that takes a message and simply ignores it. The benefit to the functional approach over
 //! the Akka model is that it allows the user to create actors easily and simply. This is the notion
@@ -208,7 +224,7 @@
 //! another state and process other messages, skipping certain messages to be processed later.
 //! 3. **When skipping messages, the messages must not move.** Akka allows the skipping of messages
 //! by _stashing_ the message in another data structure and then restoring this stash later. This
-//! process has many inherent flaws. Instead Axiom allows an actor to skip messages in its channel
+//! process has many inherent flaws. Instead Axiom allows an actor to skip messages in its channel 
 //! but leave them where they are, increasing performance and avoiding many problems.
 //! 4. **Actors use a bounded capacity channel.** In Axiom the message capacity for the actor's
 //! channel is bounded, resulting in greater simplicity and an emphasis on good actor design.
@@ -219,6 +235,11 @@
 //! maintained and should be a resource for those wanting to use Axiom. They should not be a dumping
 //! ground for copy-paste or throwaway code. The best tests will look like architected code.
 //! 7. **A huge emphasis is put on crate user ergonomics.** Axiom should be easy to use.
+//!
+//! The principals that Conjecture may *not* preserve are principals 4 and 6. To address those:
+//!
+//!   - **Bounded capacity channel:** While it may be best to have a bounded capacity channel, we will need to do some experimentation with the design before we settle our own opinion on it and our initial reaction is that it would be good to have the user be allowed to choose. As far as complexity is concerned we will probably look into out-sourcing our channel implementation to something like [flume](https://github.com/zesterer/flume) There has not been enough investigation made to make such statements with any certainty, though.
+//!   - **The tests are the best place for examples:** While we agree that tests should be examples of how the code will actually be used, we are less along the lines of telling users to go look at the unit tests to find out how to use the library. We want the documentation to be rich and helpful to the users so that they don't *have* to look at the tests to find out how to use the tool.
 
 use std::any::Any;
 use std::error::Error;

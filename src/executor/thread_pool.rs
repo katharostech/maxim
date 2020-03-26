@@ -4,13 +4,13 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
-/// Axiom's core ThreadPool, custom so we can await the shutdown of the threads.
+/// Conjecture's core ThreadPool, custom so we can await the shutdown of the threads.
 #[derive(Default)]
-pub(crate) struct AxiomThreadPool {
+pub(crate) struct ConjectureThreadPool {
     drain: Arc<DrainAwait>,
 }
 
-impl AxiomThreadPool {
+impl ConjectureThreadPool {
     /// Primary functionality of the ThreadPool. Spawns a thread, adds a little tracking before and
     /// after execution of the given function.
     pub fn spawn<F: FnMut() + Send + 'static>(&self, name: String, f: F) -> Arc<ThreadDeed> {

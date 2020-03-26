@@ -1,9 +1,9 @@
-//! Implements actors and related types of Axiom.
+//! Implements actors and related types of Conjecture.
 //!
-//! These are the core components that make up the features of Axiom. The actor model is designed
-//! to allow the user maximum flexibility. The actors can skip messages if they choose, enabling
-//! them to work as a *finite state machine* without having to move messages around. Actors are
-//! created by calling `system::spawn().with()` with any kind of function or closure that
+//! These are the core components that make up the features of Conjecture. The actor model is
+//! designed to allow the user maximum flexibility. The actors can skip messages if they choose,
+//! enabling them to work as a *finite state machine* without having to move messages around. Actors
+//! are created by calling `system::spawn().with()` with any kind of function or closure that
 //! implements the `Processor` trait.
 
 use crate::message::ActorMessage;
@@ -301,13 +301,13 @@ impl std::cmp::Ord for Aid {
 
 impl Aid {
     /// Attempts to send a message to the actor with the given [`Aid`] and returns
-    /// `std::Result::Ok` when the send was successful or a `std::Result::Err<AxiomError>`
+    /// `std::Result::Ok` when the send was successful or a `std::Result::Err<ConjectureError>`
     /// if something went wrong with the send. Note that if a user just calls `send(msg).unwrap()`,
     /// a panic could take down the dispatcher thread and thus eventually hang the process.
     ///
     /// # Examples
     /// ```
-    /// use axiom::prelude::*;
+    /// use conjecture::prelude::*;
     /// use std::sync::Arc;
     /// use std::time::Duration;
     ///
@@ -373,7 +373,7 @@ impl Aid {
     /// The `Arc` sent will be transferred to the ownership of the `Aid`.
     ///
     /// ```
-    /// use axiom::prelude::*;
+    /// use conjecture::prelude::*;
     /// use std::sync::Arc;
     /// use std::time::Duration;
     ///
@@ -414,7 +414,7 @@ impl Aid {
     /// If the code wishes to resend a message it should just call just call `send(msg)`.
     ///
     /// ```
-    /// use axiom::prelude::*;
+    /// use conjecture::prelude::*;
     /// use std::sync::Arc;
     /// use std::time::Duration;
     ///
@@ -448,16 +448,16 @@ impl Aid {
     }
 
     /// Schedules the given message to be sent after a minimum of the specified duration. Note
-    /// that Axiom doesn't guarantee that the message will be sent on exactly now + duration but
+    /// that Conjecture doesn't guarantee that the message will be sent on exactly now + duration but
     /// rather that _at least_ the duration will pass before the message is sent to the actor.
-    /// Axiom will try to send as close as possible without going under the amount but precise
+    /// Conjecture will try to send as close as possible without going under the amount but precise
     /// timing should not be depended on.  This method will return an `Err` if the actor has been
     /// stopped or `Ok` if the message was scheduled to be sent. If the actor is stopped before
     /// the duration passes then the scheduled message will never get to the actor.
     ///
     /// # Examples
     /// ```
-    /// use axiom::prelude::*;
+    /// use conjecture::prelude::*;
     /// use std::sync::Arc;
     /// use std::time::Duration;
     ///
@@ -520,7 +520,7 @@ impl Aid {
     ///
     /// # Examples
     /// ```
-    /// use axiom::prelude::*;
+    /// use conjecture::prelude::*;
     /// use std::sync::Arc;
     /// use std::time::Duration;
     ///
@@ -562,7 +562,7 @@ impl Aid {
     ///
     /// # Examples
     /// ```
-    /// use axiom::prelude::*;
+    /// use conjecture::prelude::*;
     /// use std::sync::Arc;
     /// use std::time::Duration;
     ///
