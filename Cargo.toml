@@ -39,7 +39,7 @@ exclude = [
 ]
 
 [features]
-default = []
+default = ["actor-pool"]
 actor-pool = ["rand", "rand_xoshiro"]
 
 [badges]
