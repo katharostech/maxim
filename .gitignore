@@ -1,6 +1,10 @@
+# Ignore everything with "gitignore" in the name ( other than the .gitignore file )
+*gitignore*
+!.gitignore
+
+# Cargo 
 /target
 **/*.rs.bk
-**/.DS_Store
 Cargo.lock
 
 # IntelliJ Files
@@ -9,3 +13,6 @@ Cargo.lock
 
 # VSCode files
 .vscode
+
+# MIsc
+**/.DS_Store
