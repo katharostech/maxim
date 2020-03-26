@@ -19,4 +19,4 @@ The first release after forking from Axiom.
     - Add `actor-pool` Cargo feature that is enabled by default and gates off the `RandomAidPool` implementation to avoid bringin in extra dependencies.
 
 [unreleased]: https://github.com/katharostech/conjecture/compare/v0.1.0-alpha.0...HEAD
-[0.1.0-alpha.0]: https://github.com/katharostech/conjecture/compare/v0.1.0-alpha.0
+[0.1.0-alpha.0]: https://github.com/katharostech/conjecture/releases/tag/v0.1.0-alpha.0
