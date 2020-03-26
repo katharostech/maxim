@@ -167,3 +167,7 @@ The principals that Conjecture may **not** preserve are principals 4 and 6. To a
 
   - **Bounded capacity channel:** While it may be best to have a bounded capacity channel, we will need to do some experimentation with the design before we settle our own opinion on it and our initial reaction is that it would be good to have the user be allowed to choose. As far as complexity is concerned we will probably look into out-sourcing our channel implementation to something like [flume](https://github.com/zesterer/flume) There has not been enough investigation made to make such statements with any certainty, though.
   - **The tests are the best place for examples:** While we agree that tests should be examples of how the code will actually be used, we are less along the lines of telling users to go look at the unit tests to find out how to use the library. We want the documentation to be rich and helpful to the users so that they don't *have* to look at the tests to find out how to use the tool.
+
+[`conjecture::actors::Processor`]: https://docs.rs/conjecture/latest/conjecture/actors/trait.Processor.html
+[`Arc`]: https://doc.rust-lang.org/stable/std/sync/struct.Arc.html
+[`Mutex`]: https://doc.rust-lang.org/stable/std/sync/struct.Mutex.html
