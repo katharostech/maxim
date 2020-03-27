@@ -1,12 +1,12 @@
-//! Implements a cluster manager for Conjecture that manages connections to remote actor systems
+//! Implements a cluster manager for Maxim that manages connections to remote actor systems
 //! over TCP.
 //!
-//! This is a reference implmentation for creating a cluster manager for Conjecture. The developer can
-//! use any technology they want for managing an Conjecture cluster so long as it supports bridging two
+//! This is a reference implmentation for creating a cluster manager for Maxim. The developer can
+//! use any technology they want for managing an Maxim cluster so long as it supports bridging two
 //! actor systems with channels. This implementation achieves that bridge through generic
 //! run-of-the-mill TCP connections. This is not to say that this code is simple, or usable only
-//! for a reference. It is designed to be the default way Conjecture is clustered and thus it will be
-//! robust and well tested like the rest of Conjecture.
+//! for a reference. It is designed to be the default way Maxim is clustered and thus it will be
+//! robust and well tested like the rest of Maxim.
 
 use crate::prelude::*;
 use log::{error, info};

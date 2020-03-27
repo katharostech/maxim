@@ -1,4 +1,4 @@
-//! This is an example of implementing the classic "Hello World" in the Conjecture actor system.
+//! This is an example of implementing the classic "Hello World" in the Maxim actor system.
 //!
 //! Demonstrates
 //! * Creating an actor system.
@@ -9,7 +9,7 @@
 //! * Triggering an actor system shutdown within the actor.
 //! * Awaiting the actor system to shut down.
 
-use conjecture::prelude::*;
+use maxim::prelude::*;
 use serde::{Deserialize, Serialize};
 
 /// The messages we will be sending to our actor. All messages must be serializable and

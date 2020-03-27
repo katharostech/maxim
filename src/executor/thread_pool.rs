@@ -4,13 +4,13 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
 
-/// Conjecture's core ThreadPool, custom so we can await the shutdown of the threads.
+/// Maxim's core ThreadPool, custom so we can await the shutdown of the threads.
 #[derive(Default)]
-pub(crate) struct ConjectureThreadPool {
+pub(crate) struct MaximThreadPool {
     drain: Arc<DrainAwait>,
 }
 
-impl ConjectureThreadPool {
+impl MaximThreadPool {
     /// Primary functionality of the ThreadPool. Spawns a thread, adds a little tracking before and
     /// after execution of the given function.
     pub fn spawn<F: FnMut() + Send + 'static>(&self, name: String, f: F) -> Arc<ThreadDeed> {

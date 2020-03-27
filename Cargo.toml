@@ -1,17 +1,17 @@
 [package]
-name = "conjecture"
+name = "maxim"
 version = "0.1.0-alpha.0"
 edition = "2018"
 authors = [
-    "Conjecture Contributors", 
+    "Maxim Contributors", 
     "Zicklag <zicklag@katharostech.com>",
     "Robert Simmons Jr. MSc.",
     "Khionu Sybiern <dev@khionu.net>"
 ]
 license = "Apache-2.0"
-homepage = "https://github.com/katharostech/conjecture"
-repository = "https://github.com/katharostech/conjecture"
-documentation = "https://docs.rs/conjecture"
+homepage = "https://github.com/katharostech/maxim"
+repository = "https://github.com/katharostech/maxim"
+documentation = "https://docs.rs/maxim"
 readme = "README.md"
 description = """
 Implements a highly-scalable and ergonomic actor system for Rust based on the 
@@ -45,9 +45,9 @@ actor-pool = ["rand", "rand_xoshiro"]
 
 [badges]
 # We won't be using Travis in a bit
-#travis-ci = { repository = "katharostech/conjecture" }
-is-it-maintained-issue-resolution = { repository = "katharostech/conjecture" }
-is-it-maintained-open-issues  = { repository = "katharostech/conjecture" }
+#travis-ci = { repository = "katharostech/maxim" }
+is-it-maintained-issue-resolution = { repository = "katharostech/maxim" }
+is-it-maintained-open-issues  = { repository = "katharostech/maxim" }
 maintenance = { status = "actively-developed" }
 
 [dev-dependencies]

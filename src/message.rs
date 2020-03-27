@@ -115,7 +115,7 @@ impl Message {
     ///
     /// # Examples
     /// ```rust
-    /// use conjecture::message::Message;
+    /// use maxim::message::Message;
     ///
     /// let msg = Message::new(11);
     /// ```
@@ -137,7 +137,7 @@ impl Message {
     ///
     /// # Examples
     /// ```rust
-    /// use conjecture::message::Message;
+    /// use maxim::message::Message;
     /// use std::sync::Arc;
     ///
     /// let arc = Arc::new(11);
@@ -170,7 +170,7 @@ impl Message {
     ///
     /// # Examples
     /// ```rust
-    /// use conjecture::message::Message;
+    /// use maxim::message::Message;
     /// use std::sync::Arc;
     ///
     /// let value = 11 as i32;
