@@ -15,16 +15,17 @@
 //!
 //! Other things that we are thinking about changing are:
 //!
-//!   - Using [Agnostik](https://github.com/bastion-rs/agnostik) as an executor to allow Maxim to run on any executor.
-//!     - If Agnostik will not suffice for some reason we will probably switch to Tokio for the executor to avoid maintaining our own.
-//!   - Adding an optional macro for matching on message type
-//!   - Adding an option to use either bounded or unbounded channels for actor messages.
+//! - Using [Agnostik](https://github.com/bastion-rs/agnostik) as an executor to allow Maxim to run on any executor.
+//!   - If Agnostik will not suffice for some reason we will probably switch to Tokio for the executor to avoid maintaining our own.
+//! - Adding an optional macro for matching on message type
+//! - Adding an option to use either bounded or unbounded channels for actor messages.
 //!
 //! # Getting Started
 //!
-//! *An actor model is an architectural asynchronous programming paradigm characterized by the use of actors for all processing activities.*
+//! _An actor model is an architectural asynchronous programming paradigm characterized by the use of actors for all processing activities._
 //!
 //! Actors have the following characteristics:
+//!
 //! 1. An actor can be interacted with only by means of messages.
 //! 2. An actor processes only one message at a time.
 //! 3. An actor will process a message only once.
@@ -125,52 +126,52 @@
 //!
 //! This code creates a named actor out of an arbitrary struct. Since the only requirement to make an actor is to have a function that is compliant with the [`maxim::actors::Processor`] trait, anything can be an actor. If this struct had been declared somewhere outside of your control you could use it in an actor as state by declaring your own handler function and making the calls to the 3rd party structure.
 //!
-//! *It's important to keep in mind that the starting state is moved into the actor and you will not have external access to it afterwards.* This is by design and although you could conceivably use a [`Arc`] or [`Mutex`] enclosing a structure as state, that would definitely be a bad idea as it would break the rules we laid out for actors.
+//! _It's important to keep in mind that the starting state is moved into the actor and you will not have external access to it afterwards._ This is by design and although you could conceivably use a [`Arc`] or [`Mutex`] enclosing a structure as state, that would definitely be a bad idea as it would break the rules we laid out for actors.
 //!
 //! # Detailed Examples
 //!
-//! * [Hello World](https://github.com/katharostech/maxim/blob/master/examples/hello_world.rs): The
-//! obligatory introduction to any computer system.
-//! * [Dining Philosophers](https://github.com/katharostech/maxim/blob/master/examples/philosophers.rs):
-//! An example of using Maxim to solve a classic Finite State Machine problem in computer science.
-//! * [Monte Carlo](https://github.com/katharostech/maxim/blob/master/examples/montecarlo.rs): An
-//! example of how to use Maxim for parallel computation.
+//! - [Hello World](https://github.com/katharostech/maxim/blob/master/examples/hello_world.rs): The
+//!   obligatory introduction to any computer system.
+//! - [Dining Philosophers](https://github.com/katharostech/maxim/blob/master/examples/philosophers.rs):
+//!   An example of using Maxim to solve a classic Finite State Machine problem in computer science.
+//! - [Monte Carlo](https://github.com/katharostech/maxim/blob/master/examples/montecarlo.rs): An
+//!   example of how to use Maxim for parallel computation.
 //!
 //! ## Design Principals of Maxim
 //!
 //! These are the core principals of Axiom, the project Maxim was forked from:
 //!
 //! 1. **At its core an actor is just an function that processes messages.** The simplest actor is a
-//! function that takes a message and simply ignores it. The benefit to the functional approach over
-//! the Akka model is that it allows the user to create actors easily and simply. This is the notion
-//! of _micro module programming_; the notion of building a complex system from the smallest
-//! components. Software based on the actor model can get complicated; keeping it simple at the core
-//! is fundamental to solid architecture.
+//!    function that takes a message and simply ignores it. The benefit to the functional approach over
+//!    the Akka model is that it allows the user to create actors easily and simply. This is the notion
+//!    of _micro module programming_; the notion of building a complex system from the smallest
+//!    components. Software based on the actor model can get complicated; keeping it simple at the core
+//!    is fundamental to solid architecture.
 //! 2. **Actors can be a Finite State Machine (FSM).** Actors receive and process messages nominally
-//! in the order received. However, there are certain circumstances where an actor has to change to
-//! another state and process other messages, skipping certain messages to be processed later.
+//!    in the order received. However, there are certain circumstances where an actor has to change to
+//!    another state and process other messages, skipping certain messages to be processed later.
 //! 3. **When skipping messages, the messages must not move.** Akka allows the skipping of messages
-//! by _stashing_ the message in another data structure and then restoring this stash later. This
-//! process has many inherent flaws. Instead Axiom allows an actor to skip messages in its channel 
-//! but leave them where they are, increasing performance and avoiding many problems.
+//!    by _stashing_ the message in another data structure and then restoring this stash later. This
+//!    process has many inherent flaws. Instead Axiom allows an actor to skip messages in its channel
+//!    but leave them where they are, increasing performance and avoiding many problems.
 //! 4. **Actors use a bounded capacity channel.** In Axiom the message capacity for the actor's
-//! channel is bounded, resulting in greater simplicity and an emphasis on good actor design.
+//!    channel is bounded, resulting in greater simplicity and an emphasis on good actor design.
 //! 5. **Axiom should be kept as small as possible.** Axiom is the core of the actor model and
-//! should not be expanded to include everything possible for actors. That should be the job of
-//! libraries that extend Axiom. Axiom itself should be an example of _micro module programming_.
+//!    should not be expanded to include everything possible for actors. That should be the job of
+//!    libraries that extend Axiom. Axiom itself should be an example of _micro module programming_.
 //! 6. **The tests are the best place for examples.** The tests of Axiom will be extensive and well
-//! maintained and should be a resource for those wanting to use Axiom. They should not be a dumping
-//! ground for copy-paste or throwaway code. The best tests will look like architected code.
+//!    maintained and should be a resource for those wanting to use Axiom. They should not be a dumping
+//!    ground for copy-paste or throwaway code. The best tests will look like architected code.
 //! 7. **A huge emphasis is put on crate user ergonomics.** Axiom should be easy to use.
 //!
 //! The principals that Maxim may **not** preserve are principals 4 and 6. To address those:
 //!
-//!   - **Bounded capacity channel:** While it may be best to have a bounded capacity channel, we will need to do some experimentation with the design before we settle our own opinion on it and our initial reaction is that it would be good to have the user be allowed to choose. As far as complexity is concerned we will probably look into out-sourcing our channel implementation to something like [flume](https://github.com/zesterer/flume) There has not been enough investigation made to make such statements with any certainty, though.
-//!   - **The tests are the best place for examples:** While we agree that tests should be examples of how the code will actually be used, we are less along the lines of telling users to go look at the unit tests to find out how to use the library. We want the documentation to be rich and helpful to the users so that they don't *have* to look at the tests to find out how to use the tool.
+//! - **Bounded capacity channel:** While it may be best to have a bounded capacity channel, we will need to do some experimentation with the design before we settle our own opinion on it and our initial reaction is that it would be good to have the user be allowed to choose. As far as complexity is concerned we will probably look into out-sourcing our channel implementation to something like [flume](https://github.com/zesterer/flume). There has not been enough investigation made to make such statements with any certainty, though.
+//! - **The tests are the best place for examples:** While we agree that tests should be examples of how the code will actually be used, we are less along the lines of telling users to go look at the unit tests to find out how to use the library. We want the documentation to be rich and helpful to the users so that they don't _have_ to look at the tests to find out how to use the tool.
 //!
-//! [`maxim::actors::Processor`]: https://docs.rs/maxim/latest/maxim/actors/trait.Processor.html
-//! [`Arc`]: https://doc.rust-lang.org/stable/std/sync/struct.Arc.html
-//! [`Mutex`]: https://doc.rust-lang.org/stable/std/sync/struct.Mutex.html
+//! [`maxim::actors::processor`]: https://docs.rs/maxim/latest/maxim/actors/trait.Processor.html
+//! [`arc`]: https://doc.rust-lang.org/stable/std/sync/struct.Arc.html
+//! [`mutex`]: https://doc.rust-lang.org/stable/std/sync/struct.Mutex.html
 
 use std::any::Any;
 use std::error::Error;
