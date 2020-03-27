@@ -36,6 +36,7 @@ exclude = [
     "/.git",
     "/.github",
     "/.travis.yml",
+    "/modoc.config",
 ]
 
 [features]
