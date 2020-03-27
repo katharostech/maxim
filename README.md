@@ -11,14 +11,15 @@ Maxim is a fork of the [Axiom](https://github.com/rsimmonsjr/axiom) actor framew
 
 Maxim brings a highly-scalable actor model to the Rust language based on the many lessons learned over years of Actor model implementations in Akka and Erlang. Maxim is, however, not a direct re-implementation of either of the two aforementioned actor models but rather a new implementation deriving inspiration from the good parts of those projects.
 
-The current development plan for Maxim is to leave it unreleased for the moment while we experiment with it and add features that we find useful for our test projects. The first thing we added since the fork was a `spawn_pool` feature that allows you to create pools of actors. This and other features we add are likely to change and adapt as we test them in our projects.
+Current development on Maxim is focused on learning how the framework works and experimenting with our design ideas. We will be pushing `0.1.0-alpha` releases with our changes util it gets to a point that is relatively usable. The first thing we've added since the fork was a `spawn_pool` feature that allows you to create pools of actors. This and other features we add are likely to change and adapt as we test them in our projects.
 
 Other things that we are thinking about changing are:
 
-- Using [Agnostik](https://github.com/bastion-rs/agnostik) as an executor to allow Maxim to run on any executor.
-  - If Agnostik will not suffice for some reason we will probably switch to Tokio for the executor to avoid maintaining our own.
+- Using [Agnostik](https://github.com/bastion-rs/agnostik) as an executor to allow Maxim to run on any executor
+  - If Agnostik will not suffice for some reason we will probably switch to Tokio for the executor to avoid maintaining our own
 - Adding an optional macro for matching on message type
-- Adding an option to use either bounded or unbounded channels for actor messages.
+- Adding an option to use either bounded or unbounded channels for actor messages ( see "Design Principals of Maxim" below for more info )
+  - This woud probably involve using [Flume](https://github.com/zesterer/flume) for backing the channels
 
 # Getting Started
 
@@ -166,7 +167,7 @@ These are the core principals of Axiom, the project Maxim was forked from:
 
 The principals that Maxim may **not** preserve are principals 4 and 6. To address those:
 
-- **Bounded capacity channel:** While it may be best to have a bounded capacity channel, we will need to do some experimentation with the design before we settle our own opinion on it and our initial reaction is that it would be good to have the user be allowed to choose. As far as complexity is concerned we will probably look into out-sourcing our channel implementation to something like [flume](https://github.com/zesterer/flume). There has not been enough investigation made to make such statements with any certainty, though.
+- **Bounded capacity channel:** While it may be best to have a bounded capacity channel, we will need to do some experimentation with the design before we settle our own opinion on it and our initial reaction is that it would be good to have the user be allowed to choose. As far as complexity is concerned we will probably look into out-sourcing our channel implementation to something like [Flume](https://github.com/zesterer/flume). There has not been enough investigation made to make such statements with any certainty, though.
 - **The tests are the best place for examples:** While we agree that tests should be examples of how the code will actually be used, we are less along the lines of telling users to go look at the unit tests to find out how to use the library. We want the documentation to be rich and helpful to the users so that they don't _have_ to look at the tests to find out how to use the tool.
 
 [`maxim::actors::processor`]: https://docs.rs/maxim/latest/maxim/actors/trait.Processor.html
