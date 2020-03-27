@@ -962,7 +962,7 @@ impl<F> Handler for F where F: (FnMut(Context, Message) -> HandlerFuture) + Send
 
 /// A builder that can be used to create and spawn an actor. To get a builder, the user would ask
 /// the actor system to create one using `system.spawn()` and then to spawn the actor by means of
-/// the the `with` method on the builder. See [`ActorSystem::actor`] for more information.
+/// the the `with` method on the builder. See [`ActorSystem::spawn`] for more information.
 #[derive(Clone)]
 pub struct ActorBuilder {
     /// The System that the actor builder was created on.
