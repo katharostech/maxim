@@ -2,7 +2,7 @@
 //!
 //! [![Latest version](https://img.shields.io/crates/v/maxim.svg)](https://crates.io/crates/maxim)
 //! [![Average time to resolve an issue](https://isitmaintained.com/badge/resolution/katharostech/maxim.svg)](https://isitmaintained.com/project/katharostech/maxim)
-//! [![License](https://img.shields.io/crates/l/maxim.svg)](https://github.com/rsimmonsjr/maxim#license)
+//! [![License](https://img.shields.io/crates/l/maxim.svg)](https://github.com/katharostech/maxim#license)
 //! [![Changelog.md](https://img.shields.io/badge/Keep%20a%20Changelog-Changelog.md-blue)](https://github.com/katharostech/maxim/blob/master/CHANGELOG.md)
 //!
 //! # Maxim
@@ -21,7 +21,7 @@
 //! - Adding an option to use either bounded or unbounded channels for actor messages ( see "Design Principals of Maxim" below for more info )
 //!   - This woud probably involve using [Flume](https://github.com/zesterer/flume) for backing the channels
 //!
-//! # Getting Started
+//! ## Getting Started
 //!
 //! _An actor model is an architectural asynchronous programming paradigm characterized by the use of actors for all processing activities._
 //!
@@ -129,7 +129,7 @@
 //!
 //! _It's important to keep in mind that the starting state is moved into the actor and you will not have external access to it afterwards._ This is by design and although you could conceivably use a [`Arc`] or [`Mutex`] enclosing a structure as state, that would definitely be a bad idea as it would break the rules we laid out for actors.
 //!
-//! # Detailed Examples
+//! ## Detailed Examples
 //!
 //! - [Hello World](https://github.com/katharostech/maxim/blob/master/examples/hello_world.rs): The
 //!   obligatory introduction to any computer system.
@@ -173,6 +173,22 @@
 //! [`maxim::actors::processor`]: https://docs.rs/maxim/latest/maxim/actors/trait.Processor.html
 //! [`arc`]: https://doc.rust-lang.org/stable/std/sync/struct.Arc.html
 //! [`mutex`]: https://doc.rust-lang.org/stable/std/sync/struct.Mutex.html
+//!
+//! ## License
+//!
+//! Copyright 2020 Maxim Contributors
+//!
+//! Licensed under the Apache License, Version 2.0 (the "License");
+//! you may not use this file except in compliance with the License.
+//! You may obtain a copy of the License at
+//!
+//!   http://www.apache.org/licenses/LICENSE-2.0
+//!
+//! Unless required by applicable law or agreed to in writing, software
+//! distributed under the License is distributed on an "AS IS" BASIS,
+//! WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+//! See the License for the specific language governing permissions and
+//! limitations under the License.
 
 use std::any::Any;
 use std::error::Error;
