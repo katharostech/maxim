@@ -174,6 +174,13 @@ The principals that Maxim may **not** preserve are principals 4 and 6. To addres
 [`arc`]: https://doc.rust-lang.org/stable/std/sync/struct.Arc.html
 [`mutex`]: https://doc.rust-lang.org/stable/std/sync/struct.Mutex.html
 
+## Dependency Graph
+
+  - **Black:** regular dependency
+  - **Red:** optional dependency
+
+![dependency graph](./doc/dep-graph.png)
+
 ## License
 
 Copyright 2020 Maxim Contributors
