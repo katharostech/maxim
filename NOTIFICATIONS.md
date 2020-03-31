@@ -2,11 +2,9 @@
 
 ## Overview of licenses
 
-  - MIT License (34)
+  - MIT License (33)
   - Apache License 2.0 (2)
   - BSD 2-Clause &quot;Simplified&quot; License (1)
-  - BSD 3-Clause &quot;New&quot; or &quot;Revised&quot; License (1)
-  - ISC License (1)
 
       
 ## All Licenses
@@ -446,65 +444,6 @@ Redistribution and use in source and binary forms, with or without modification,
 THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS &quot;AS IS&quot; AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### BSD 3-Clause &quot;New&quot; or &quot;Revised&quot; License
-
-#### Used by
-  - [fuchsia-cprng 0.1.1]( https://fuchsia.googlesource.com/fuchsia/+/master/garnet/public/rust/fuchsia-cprng )
-
-
-```
-Copyright 2019 The Fuchsia Authors. All rights reserved.
-
-Redistribution and use in source and binary forms, with or without
-modification, are permitted provided that the following conditions are
-met:
-
-   * Redistributions of source code must retain the above copyright
-notice, this list of conditions and the following disclaimer.
-   * Redistributions in binary form must reproduce the above
-copyright notice, this list of conditions and the following disclaimer
-in the documentation and/or other materials provided with the
-distribution.
-   * Neither the name of Google Inc. nor the names of its
-contributors may be used to endorse or promote products derived from
-this software without specific prior written permission.
-
-THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-&quot;AS IS&quot; AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
-LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
-A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
-SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
-LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
-DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
-THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
-(INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
-OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
-
-```
-
-### ISC License
-
-#### Used by
-  - [rdrand 0.4.0]( https://github.com/nagisa/rust_rdrand/ )
-
-
-```
-Copyright © 2014, Simonas Kazlauskas
-
-Permission to use, copy, modify, and/or distribute this software for any purpose with or without
-fee is hereby granted, provided that the above copyright notice and this permission notice appear
-in all copies.
-
-THE SOFTWARE IS PROVIDED &quot;AS IS&quot; AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS
-SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE
-AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
-WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT,
-NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
-THIS SOFTWARE.
-
-```
-
 ### MIT License
 
 #### Used by
@@ -545,7 +484,7 @@ DEALINGS IN THE SOFTWARE.
 
 #### Used by
   - [cfg-if 0.1.10]( https://github.com/alexcrichton/cfg-if )
-  - [proc-macro2 1.0.9]( https://github.com/alexcrichton/proc-macro2 )
+  - [proc-macro2 1.0.10]( https://github.com/alexcrichton/proc-macro2 )
 
 
 ```
@@ -581,7 +520,7 @@ DEALINGS IN THE SOFTWARE.
 
 #### Used by
   - [bitflags 1.2.1]( https://github.com/bitflags/bitflags )
-  - [env_logger 0.6.2]( https://github.com/sebasmagri/env_logger/ )
+  - [env_logger 0.7.1]( https://github.com/sebasmagri/env_logger/ )
   - [libc 0.2.68]( https://github.com/rust-lang/libc )
   - [log 0.4.8]( https://github.com/rust-lang/log )
   - [regex 1.3.6]( https://github.com/rust-lang/regex )
@@ -621,48 +560,12 @@ DEALINGS IN THE SOFTWARE.
 ### MIT License
 
 #### Used by
-  - [uuid 0.7.4]( https://github.com/uuid-rs/uuid )
+  - [uuid 0.8.1]( https://github.com/uuid-rs/uuid )
 
 
 ```
 Copyright (c) 2014 The Rust Project Developers
 Copyright (c) 2018 Ashley Mannix, Christopher Armstrong, Dylan DPC, Hunar Roop Kahlon
-
-Permission is hereby granted, free of charge, to any
-person obtaining a copy of this software and associated
-documentation files (the &quot;Software&quot;), to deal in the
-Software without restriction, including without
-limitation the rights to use, copy, modify, merge,
-publish, distribute, sublicense, and/or sell copies of
-the Software, and to permit persons to whom the Software
-is furnished to do so, subject to the following
-conditions:
-
-The above copyright notice and this permission notice
-shall be included in all copies or substantial portions
-of the Software.
-
-THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF
-ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED
-TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
-PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT
-SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
-OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR
-IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
-DEALINGS IN THE SOFTWARE.
-
-```
-
-### MIT License
-
-#### Used by
-  - [rand_pcg 0.1.2]( https://github.com/rust-random/rand )
-
-
-```
-Copyright (c) 2014-2017 Melissa O'Neill and PCG Project contributors
-Copyright 2018 Developers of the Rand project
 
 Permission is hereby granted, free of charge, to any
 person obtaining a copy of this software and associated
@@ -1139,7 +1042,7 @@ DEALINGS IN THE SOFTWARE.
 ### MIT License
 
 #### Used by
-  - [proc-macro-hack 0.5.14]( https://github.com/dtolnay/proc-macro-hack )
+  - [proc-macro-hack 0.5.15]( https://github.com/dtolnay/proc-macro-hack )
   - [proc-macro-nested 0.1.4]( https://github.com/dtolnay/proc-macro-hack )
 
 
@@ -1385,7 +1288,6 @@ DEALINGS IN THE SOFTWARE.
 ### MIT License
 
 #### Used by
-  - [rand_hc 0.1.0]( https://github.com/rust-random/rand )
   - [rand_hc 0.2.0]( https://github.com/rust-random/rand )
 
 
@@ -1422,17 +1324,9 @@ DEALINGS IN THE SOFTWARE.
 
 #### Used by
   - [getrandom 0.1.14]( https://github.com/rust-random/getrandom )
-  - [rand 0.6.5]( https://github.com/rust-random/rand )
   - [rand 0.7.3]( https://github.com/rust-random/rand )
-  - [rand_chacha 0.1.1]( https://github.com/rust-random/rand )
   - [rand_chacha 0.2.2]( https://github.com/rust-random/rand )
-  - [rand_core 0.3.1]( https://github.com/rust-random/rand )
-  - [rand_core 0.4.2]( https://github.com/rust-random/rand )
   - [rand_core 0.5.1]( https://github.com/rust-random/rand )
-  - [rand_isaac 0.1.1]( https://github.com/rust-random/rand )
-  - [rand_jitter 0.1.4]( https://github.com/rust-random/rand )
-  - [rand_os 0.1.3]( https://github.com/rust-random/rand )
-  - [rand_xorshift 0.1.1]( https://github.com/rust-random/rand )
 
 
 ```
@@ -1517,12 +1411,12 @@ THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRES
 ### MIT License
 
 #### Used by
-  - [hermit-abi 0.1.8]( https://github.com/hermitcore/rusty-hermit )
+  - [hermit-abi 0.1.10]( https://github.com/hermitcore/rusty-hermit )
   - [itoa 0.4.5]( https://github.com/dtolnay/itoa )
   - [once_cell 1.3.1]( https://github.com/matklad/once_cell )
   - [serde 1.0.105]( https://github.com/serde-rs/serde )
   - [serde_derive 1.0.105]( https://github.com/serde-rs/serde )
-  - [serde_json 1.0.48]( https://github.com/serde-rs/json )
+  - [serde_json 1.0.50]( https://github.com/serde-rs/json )
   - [syn 1.0.17]( https://github.com/dtolnay/syn )
   - [wasi 0.9.0+wasi-snapshot-preview1]( https://github.com/bytecodealliance/wasi )
 
@@ -1653,7 +1547,7 @@ SOFTWARE.
 ### MIT License
 
 #### Used by
-  - [winapi-util 0.1.3]( https://github.com/BurntSushi/winapi-util )
+  - [winapi-util 0.1.4]( https://github.com/BurntSushi/winapi-util )
 
 
 ```
