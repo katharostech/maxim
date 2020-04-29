@@ -174,7 +174,11 @@ impl Default for ActorSystemConfig {
     /// Create the config with the default values.
     fn default() -> ActorSystemConfig {
         ActorSystemConfig {
-            thread_pool_size: (num_cpus::get() * 4) as u16,
+            #[cfg(not(feature = "auto-num-threads"))]
+            thread_pool_size: 16, // Default to 4 times the assumed default number of CPUs ( 4 )
+            #[cfg(feature = "auto-num-threads")]
+            thread_pool_size: (num_cpus::get() * 4) as u16, // Run 4 times the number of detected CPUs
+
             warn_threshold: Duration::from_millis(1),
             time_slice: Duration::from_millis(1),
             thread_wait_time: Duration::from_millis(100),
