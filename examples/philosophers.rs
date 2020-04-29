@@ -20,9 +20,9 @@
 //! panics ensue. Some FSM implementations might be quite a bit more lose, preferring to ignore
 //! badly timed messages. This is largely up to the user.
 
-use maxim::prelude::*;
 use log::LevelFilter;
 use log::{error, info};
+use maxim::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
