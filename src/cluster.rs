@@ -9,7 +9,6 @@
 //! robust and well tested like the rest of Maxim.
 
 use crate::prelude::*;
-use log::{error, info};
 use secc::*;
 use std::collections::HashMap;
 use std::io::prelude::*;
@@ -102,7 +101,7 @@ impl TcpClusterMgr {
             system.init_current();
             let sys_uuid = system.uuid();
             let listener = TcpListener::bind(address).unwrap();
-            info!("{}: Listening for connections on {}.", sys_uuid, address);
+            log::info!("{}: Listening for connections on {}.", sys_uuid, address);
 
             // Notify the cluster manager that the listener is ready.
             let (mutex, condvar) = &*pair;
@@ -116,14 +115,15 @@ impl TcpClusterMgr {
             while manager.data.running.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((stream, socket_address)) => {
-                        info!(
+                        log::info!(
                             "{}: Accepting connection from: {}.",
-                            sys_uuid, socket_address
+                            sys_uuid,
+                            socket_address
                         );
                         manager.start_tcp_threads(stream, socket_address);
                     }
                     Err(e) => {
-                        error!("couldn't get client: {:?}", e);
+                        log::error!("couldn't get client: {:?}", e);
                     }
                 }
             }
@@ -160,7 +160,7 @@ impl TcpClusterMgr {
             rx_handle,
         };
 
-        info!(
+        log::info!(
             "{:?}: Connected to {:?}@{:?}",
             self.data.system.uuid(),
             system_uuid,

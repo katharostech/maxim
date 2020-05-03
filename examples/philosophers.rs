@@ -21,7 +21,6 @@
 //! badly timed messages. This is largely up to the user.
 
 use log::LevelFilter;
-use log::{error, info};
 use maxim::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -90,17 +89,20 @@ impl Fork {
                     // Resetting the skip allows fork requests to be processed.
                     Ok(Status::reset(self))
                 } else {
-                    error!(
+                    log::error!(
                         "[{}] fork_put_down() from non-owner: {} real owner is: {}",
-                        context.aid, sender, owner
+                        context.aid,
+                        sender,
+                        owner
                     );
                     Ok(Status::done(self))
                 }
             }
             None => {
-                error!(
+                log::error!(
                     "[{}] fork_put_down() from non-owner: {} real owner is: None:",
-                    context.aid, sender
+                    context.aid,
+                    sender
                 );
                 Ok(Status::done(self))
             }
@@ -119,12 +121,12 @@ impl Fork {
                     // has been marked as being dirty.
                     Ok(Status::reset(self))
                 } else {
-                    error!("[{}] Got UsingFork from non-owner: {}", context.aid, sender);
+                    log::error!("[{}] Got UsingFork from non-owner: {}", context.aid, sender);
                     Ok(Status::done(self))
                 }
             }
             _ => {
-                error!("[{}] Got UsingFork from non-owner: {}", context.aid, sender);
+                log::error!("[{}] Got UsingFork from non-owner: {}", context.aid, sender);
                 Ok(Status::done(self))
             }
         }
@@ -317,10 +319,10 @@ impl Philosopher {
                         self.request_missing_forks(context)?;
                     }
                     PhilosopherState::Hungry => {
-                        error!("[{}] Got BecomeHungry while eating!", context.aid);
+                        log::error!("[{}] Got BecomeHungry while eating!", context.aid);
                     }
                     PhilosopherState::Eating => {
-                        error!("[{}] Got BecomeHungry while eating!", context.aid);
+                        log::error!("[{}] Got BecomeHungry while eating!", context.aid);
                     }
                 };
             }
@@ -371,9 +373,12 @@ impl Philosopher {
                 fork_aid.send_new(ForkCommand::ForkPutDown(context.aid.clone()))?;
             }
         } else {
-            error!(
+            log::error!(
                 "[{}] Unknown fork asked for: {}:\n left ==>  {}\n right ==> {}",
-                context.aid, fork_aid, self.left_fork_aid, self.right_fork_aid
+                context.aid,
+                fork_aid,
+                self.left_fork_aid,
+                self.right_fork_aid
             );
         }
 
@@ -513,9 +518,9 @@ pub fn main() {
                         // output the results of the simulation and end the program by shutting
                         // down the actor system.
                         if !state.iter().any(|(_, metrics)| metrics.is_none()) {
-                            info!("Final Metrics:");
+                            log::info!("Final Metrics:");
                             for (aid, metrics) in state.iter() {
-                                info!("{}: {:?}", aid, metrics);
+                                log::info!("{}: {:?}", aid, metrics);
                             }
                             context.system.trigger_shutdown();
                         }

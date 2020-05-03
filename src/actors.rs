@@ -9,7 +9,6 @@
 use crate::message::ActorMessage;
 use crate::prelude::*;
 use futures::{FutureExt, Stream};
-use log::{debug, error, trace, warn};
 #[cfg(feature = "actor-pool")]
 use rand::{
     distributions::{Distribution, Uniform},
@@ -664,7 +663,7 @@ impl Aid {
     pub(crate) fn stop(&self) -> Result<(), AidError> {
         match &self.data.sender {
             ActorSender::Local { stopped, .. } => {
-                trace!("Stopping local Actor");
+                log::trace!("Stopping local Actor");
                 stopped.fetch_or(true, Ordering::AcqRel);
                 Ok(())
             }
@@ -987,7 +986,7 @@ impl ActorBuilder {
         F: Processor<S, R> + 'static,
     {
         let (actor, stream) = Actor::new(self.system.clone(), &self, state, processor);
-        debug!("Actor created: {}", actor.context.aid.uuid());
+        log::debug!("Actor created: {}", actor.context.aid.uuid());
         self.system.register_actor(actor, stream)
     }
 
@@ -1152,12 +1151,12 @@ impl Actor {
                     Ok(future) => match AssertUnwindSafe(future).catch_unwind().await {
                         Ok(x) => x,
                         Err(panic) => {
-                            warn!("Actor panicked! Catching as error");
+                            log::warn!("Actor panicked! Catching as error");
                             Err(Panic::from(panic).into())
                         }
                     },
                     Err(err) => {
-                        warn!("Actor panicked! Catching as error");
+                        log::warn!("Actor panicked! Catching as error");
                         Err(Panic::from(err).into())
                     }
                 }
@@ -1198,21 +1197,21 @@ impl ActorStream {
 
         match result {
             Ok(Status::Done) => {
-                trace!(
+                log::trace!(
                     "Actor {} finished processing a message",
                     self.context.aid.uuid()
                 );
                 self.receiver.pop().unwrap()
             }
             Ok(Status::Skip) => {
-                trace!(
+                log::trace!(
                     "Actor {} skipped processing a message",
                     self.context.aid.uuid()
                 );
                 self.receiver.skip().unwrap()
             }
             Ok(Status::Reset) => {
-                trace!(
+                log::trace!(
                     "Actor {} finished processing a message and reset the cursor",
                     self.context.aid.uuid()
                 );
@@ -1220,7 +1219,7 @@ impl ActorStream {
                 self.receiver.reset_skip().unwrap();
             }
             Ok(Status::Stop) => {
-                debug!("Actor \"{}\" stopping", self.context.aid.name_or_uuid());
+                log::debug!("Actor \"{}\" stopping", self.context.aid.name_or_uuid());
                 self.receiver.pop().unwrap();
                 self.context
                     .system
@@ -1229,9 +1228,10 @@ impl ActorStream {
             }
             Err(e) => {
                 self.receiver.pop().unwrap();
-                error!(
+                log::error!(
                     "[{}] returned an error when processing: {}",
-                    self.context.aid, &e
+                    self.context.aid,
+                    &e
                 );
                 self.context
                     .system
@@ -1260,7 +1260,7 @@ impl Stream for ActorStream {
         mut self: Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> Poll<Option<Self::Item>> {
-        trace!("Actor {} is being polled", self.context.aid.name_or_uuid());
+        log::trace!("Actor {} is being polled", self.context.aid.name_or_uuid());
         // If we have a pending future, that's what we poll.
         if let Some(pending) = self.pending.as_mut() {
             // Poll, ensure we respect stopping condition.
@@ -1270,7 +1270,7 @@ impl Stream for ActorStream {
                 .map(|r| Some(self.overwrite_on_stop(r)));
 
             if let Poll::Pending = &poll {
-                trace!("Actor {} is pending", self.context.aid.uuid());
+                log::trace!("Actor {} is pending", self.context.aid.uuid());
             } else {
                 drop(self.pending.take());
             }
@@ -1288,7 +1288,7 @@ impl Stream for ActorStream {
                     // We're stopping after this future, mark as such
                     if let Some(m) = msg.content_as::<SystemMsg>() {
                         if let SystemMsg::Stop = *m {
-                            trace!("Actor {} received stop message", self.context.aid.uuid());
+                            log::trace!("Actor {} received stop message", self.context.aid.uuid());
                             self.stopping = true;
                         }
                     }
@@ -1300,7 +1300,7 @@ impl Stream for ActorStream {
                     match future.as_mut().poll(cx) {
                         Poll::Ready(r) => Poll::Ready(Some(self.overwrite_on_stop(r))),
                         Poll::Pending => {
-                            trace!("Actor {} is pending", self.context.aid.uuid());
+                            log::trace!("Actor {} is pending", self.context.aid.uuid());
                             self.pending = Some(future);
                             Poll::Pending
                         }
@@ -1314,7 +1314,7 @@ impl Stream for ActorStream {
                     // While this is exhaustive, we're avoiding a catchall to in anticipation of
                     // future Secc errors we would *want* to handle.
                     SeccErrors::Empty | SeccErrors::Full(_) => {
-                        trace!(
+                        log::trace!(
                             "Actor `{}` has no more messages, return to sleep",
                             self.context.aid.name_or_uuid()
                         );
@@ -1330,8 +1330,7 @@ impl Stream for ActorStream {
 mod tests {
     use super::*;
     use crate::tests::*;
-    use log::*;
-    use std::thread;
+        use std::thread;
     use std::time::Instant;
 
     /// This is identical to the documentation but here so that its formatted by rust and we can
@@ -1351,8 +1350,8 @@ mod tests {
             .unwrap();
 
         match aid.send(Message::new(11)) {
-            Ok(_) => info!("OK Then!"),
-            Err(e) => info!("Ooops {:?}", e),
+            Ok(_) => log::info!("OK Then!"),
+            Err(e) => log::info!("Ooops {:?}", e),
         }
 
         system.await_shutdown(None);

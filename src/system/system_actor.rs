@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -14,7 +13,7 @@ impl SystemActor {
         if let Some(msg) = message.content_as::<SystemActorMessage>() {
             // Someone requested that this system actor find an actor by name.
             if let SystemActorMessage::FindByName { reply_to, name } = &*msg {
-                debug!("Attempting to locate Actor by name: {}", name);
+                log::debug!("Attempting to locate Actor by name: {}", name);
                 let found = context.system.find_aid_by_name(&name);
                 let reply = Message::new(SystemActorMessage::FindByNameResult {
                     system_uuid: context.system.uuid(),
@@ -25,7 +24,7 @@ impl SystemActor {
                 // there is a problem sending the reply. In this case, the error is logged but the
                 // actor moves on.
                 reply_to.send(reply).unwrap_or_else(|error| {
-                    error!(
+                    log::error!(
                         "Could not send reply to FindByName to actor {}. Error: {:?}",
                         reply_to, error
                     )
@@ -37,7 +36,7 @@ impl SystemActor {
             Ok(Status::done(self))
         // Log an error if we get an unexpected message kind, but continue processing as normal.
         } else {
-            error!("Unhandled message received.");
+            log::error!("Unhandled message received.");
             Ok(Status::done(self))
         }
     }

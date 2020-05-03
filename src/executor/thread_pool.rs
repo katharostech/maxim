@@ -1,5 +1,4 @@
 use crate::executor::ShutdownResult;
-use log::{debug, error, trace};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -33,7 +32,7 @@ impl MaximThreadPool {
             .spawn(move || {
                 let lease = ThreadLease::new(deed);
                 lease.deed.drain.increment();
-                debug!("Thread {} has started", lease.deed.name);
+                log::debug!("Thread {} has started", lease.deed.name);
                 lease.deed.set_running();
                 f();
                 lease.deed.set_stopped();
@@ -94,9 +93,9 @@ impl Drop for ThreadLease {
         // If the Lease dropped while Running, it Panicked.
         if let ThreadState::Running = *g {
             *g = ThreadState::Panicked;
-            error!("Thread {} panicked!", self.deed.name)
+            log::error!("Thread {} panicked!", self.deed.name)
         } else {
-            debug!("Thread {} has stopped", self.deed.name)
+            log::debug!("Thread {} has stopped", self.deed.name)
         }
         // Either way, it's dead, let's decrement the thread counter.
         self.deed.drain.decrement();
@@ -124,7 +123,7 @@ impl DrainAwait {
     pub fn increment(&self) {
         let mut g = self.mutex.lock().expect("DrainAwait poisoned");
         let new = *g + 1;
-        trace!("Incrementing DrainAwait to {}", new);
+        log::trace!("Incrementing DrainAwait to {}", new);
         *g += 1;
     }
 
@@ -132,9 +131,9 @@ impl DrainAwait {
     pub fn decrement(&self) {
         let mut guard = self.mutex.lock().expect("DrainAwait poisoned");
         *guard -= 1;
-        trace!("Decrementing DrainAwait to {}", *guard);
+        log::trace!("Decrementing DrainAwait to {}", *guard);
         if *guard == 0 {
-            debug!("DrainAwait is depleted, notifying blocked threads");
+            log::debug!("DrainAwait is depleted, notifying blocked threads");
             self.condvar.notify_all();
         }
     }

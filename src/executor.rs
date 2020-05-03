@@ -6,7 +6,6 @@ use crate::prelude::*;
 use dashmap::DashMap;
 use futures::task::ArcWake;
 use futures::Stream;
-use log::{debug, info, trace, warn};
 use std::collections::{BTreeMap, VecDeque};
 use std::pin::Pin;
 use std::sync::{Arc, Condvar, Mutex, RwLock};
@@ -55,7 +54,7 @@ impl MaximExecutor {
             self.reactors.insert(i, reactor.clone());
             self.actors_per_reactor.insert(i, 0);
             let sys = system.clone();
-            info!("Spawning Reactors");
+            log::info!("Spawning Reactors");
             self.thread_pool
                 .spawn(format!("Reactor-{}", reactor.name), move || {
                     sys.init_current();
@@ -82,12 +81,12 @@ impl MaximExecutor {
     /// This wakes an ActorStream in the Executor which will cause its future to be polled. The Aid,
     /// through the ActorSystem, will call this on Message Send.
     pub(crate) fn wake(&self, id: Aid) {
-        trace!("Waking Actor `{}`", id.name_or_uuid());
+        log::trace!("Waking Actor `{}`", id.name_or_uuid());
         // Pull the Task
         let task = match self.sleeping.remove(&id) {
             Some((_, task)) => task,
             None => {
-                debug!(
+                log::debug!(
                     "Actor `{}` not in Executor - already woken or stopped",
                     id.name_or_uuid()
                 );
@@ -119,7 +118,7 @@ impl MaximExecutor {
     /// When a Reactor is done with an task, it will be sent here, and the Executor will decrement
     /// the Actor count for that Reactor.
     fn return_task(&self, task: Task, reactor: &MaximReactor) {
-        trace!(
+        log::trace!(
             "Actor {} returned from Reactor {}",
             task.id.name_or_uuid(),
             reactor.name
@@ -134,7 +133,7 @@ impl MaximExecutor {
     /// triggered.
     pub(crate) fn await_shutdown(&self, timeout: impl Into<Option<Duration>>) -> ShutdownResult {
         let start = Instant::now();
-        info!("Notifying Reactor threads, so they can end gracefully");
+        log::info!("Notifying Reactor threads, so they can end gracefully");
         for r in self.reactors.iter() {
             match r.thread_condvar.read() {
                 Ok(g) => g.1.notify_one(),
@@ -142,7 +141,7 @@ impl MaximExecutor {
             }
         }
         let timeout = timeout.into().map(|t| t - (Instant::now() - start));
-        info!("Awaiting the threadpool's shutdown");
+        log::info!("Awaiting the threadpool's shutdown");
         self.thread_pool.await_shutdown(timeout)
     }
 }
@@ -192,7 +191,7 @@ impl MaximReactor {
     /// Creates a new Reactor
     fn new(executor: MaximExecutor, system: &ActorSystem, id: u16) -> MaximReactor {
         let name = format!("{:08x?}-{}", system.data.uuid.as_fields().0, id);
-        debug!("Creating Reactor {}", name);
+        log::debug!("Creating Reactor {}", name);
 
         MaximReactor {
             id,
@@ -234,7 +233,7 @@ impl MaximReactor {
                 .lock()
                 .expect("Poisoned shutdown_triggered condvar")
             {
-                debug!("Reactor-{} acknowledging shutdown", self.name);
+                log::debug!("Reactor-{} acknowledging shutdown", self.name);
                 return false;
             }
         }
@@ -279,13 +278,13 @@ impl MaximReactor {
                 // Still pending, return to wait_queue. Drop the wakeup, because the futures
                 // will re-add it later through their wakers.
                 Poll::Pending => {
-                    trace!("Reactor-{} waiting on pending Actor", self.name);
+                    log::trace!("Reactor-{} waiting on pending Actor", self.name);
                     self.wait(task);
                     break;
                 }
             }
             if Instant::now().duration_since(start) >= self.warn_threshold {
-                warn!(
+                log::warn!(
                     "Actor {} took longer than configured warning threshold",
                     aid.name_or_uuid()
                 );
@@ -304,14 +303,14 @@ impl MaximReactor {
     fn get_work(&self) -> LoopResult<(Wakeup, Task)> {
         if let Some(w) = self.get_woken() {
             if let Some(task) = self.remove_waiting(&w.id) {
-                trace!(
+                log::trace!(
                     "Reactor-{} received Wakeup for Actor `{}`",
                     self.name,
                     task.id.name_or_uuid()
                 );
                 LoopResult::Ok((w, task))
             } else {
-                trace!("Reactor-{} dropping spurious WakeUp", self.name);
+                log::trace!("Reactor-{} dropping spurious WakeUp", self.name);
                 LoopResult::Continue
             }
         } else {
@@ -320,12 +319,12 @@ impl MaximReactor {
                 .read()
                 .expect("Poisoned Reactor condvar");
 
-            trace!("Reactor-{} waiting on condvar", self.name);
+            log::trace!("Reactor-{} waiting on condvar", self.name);
             let g = mutex.lock().expect("Poisoned Reactor condvar");
             let _ = condvar
                 .wait_timeout(g, self.thread_wait_time)
                 .expect("Poisoned Reactor condvar");
-            trace!("Reactor-{} resuming", self.name);
+            log::trace!("Reactor-{} resuming", self.name);
             LoopResult::Continue
         }
     }
@@ -417,7 +416,6 @@ mod tests {
     use crate::executor::ShutdownResult;
     use crate::prelude::*;
     use crate::tests::*;
-    use log::*;
     use std::future::Future;
     use std::pin::Pin;
     use std::task::Poll;
@@ -446,7 +444,7 @@ mod tests {
                 0 => Poll::Ready(Ok(Status::done(()))),
                 count => {
                     *count -= 1;
-                    debug!("Pending, {} times left", count);
+                    log::debug!("Pending, {} times left", count);
                     let waker = cx.waker().clone();
                     let sleep_for = self.sleep_for;
                     thread::spawn(move || {
