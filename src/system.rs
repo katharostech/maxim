@@ -9,16 +9,14 @@
 //!
 //! The user should refer to test cases and examples as "how-to" guides for using Maxim.
 
-#[cfg(feature = "actor-pool")]
-use crate::actors::ActorPoolBuilder;
-use crate::actors::{Actor, ActorBuilder, ActorStream};
-use crate::executor::MaximExecutor;
-use crate::prelude::*;
-use crate::system::system_actor::SystemActor;
 use dashmap::DashMap;
 use once_cell::sync::OnceCell;
 use secc::{SeccReceiver, SeccSender};
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
+use smol::{Task, Timer};
+use piper::ChangeNotifier;
+
 use std::collections::{BinaryHeap, HashSet};
 use std::error::Error;
 use std::fmt;
@@ -27,7 +25,12 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
-use uuid::Uuid;
+
+#[cfg(feature = "actor-pool")]
+use crate::actors::ActorPoolBuilder;
+use crate::actors::{Actor, ActorBuilder, ActorStream};
+use crate::prelude::*;
+use crate::system::system_actor::SystemActor;
 
 mod system_actor;
 
@@ -220,53 +223,18 @@ pub struct RemoteInfo {
     _handle: JoinHandle<()>,
 }
 
-/// Stores a message that will be sent to an actor with a delay.
-struct DelayedMessage {
-    /// A unique identifier for a message.
-    uuid: Uuid,
-    /// The Aid that the message will be sent to.
-    destination: Aid,
-    /// The minimum instant that the message should be sent.
-    instant: Instant,
-    /// The message to sent.
-    message: Message,
-}
-
-impl std::cmp::PartialEq for DelayedMessage {
-    fn eq(&self, other: &Self) -> bool {
-        self.uuid == other.uuid
-    }
-}
-
-impl std::cmp::Eq for DelayedMessage {}
-
-impl std::cmp::PartialOrd for DelayedMessage {
-    fn partial_cmp(&self, other: &DelayedMessage) -> Option<std::cmp::Ordering> {
-        Some(other.instant.cmp(&self.instant)) // Uses an inverted sort.
-    }
-}
-
-impl std::cmp::Ord for DelayedMessage {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.partial_cmp(other)
-            .expect("DelayedMessage::partial_cmp() returned None; can't happen")
-    }
-}
-
 /// Contains the inner data used by the actor system.
 pub(crate) struct ActorSystemData {
     /// Unique version 4 UUID for this actor system.
     pub(crate) uuid: Uuid,
     /// The config for the actor system which was passed to it when created.
     pub(crate) config: ActorSystemConfig,
-    /// Holds handles to the pool of threads processing the work channel.
-    threads: Mutex<Vec<JoinHandle<()>>>,
-    /// The Executor responsible for managing the runtime of the Actors
-    executor: MaximExecutor,
+    // /// The Executor responsible for managing the runtime of the Actors
+    // executor: MaximExecutor,
     /// Whether the ActorSystem has started or not.
     started: AtomicBool,
     /// A flag and condvar that can be used to send a signal when the system begins to shutdown.
-    shutdown_triggered: Arc<(Mutex<bool>, Condvar)>,
+    shutdown_triggered: ChangeNotifier<Arc<AtomicBool>>,
     /// Holds the [`Actor`] objects keyed by the [`Aid`].
     actors_by_aid: Arc<DashMap<Aid, Arc<Actor>>>,
     /// Holds a map of the actor ids by the UUID in the actor id. UUIDs of actor ids are assigned
@@ -280,8 +248,6 @@ pub(crate) struct ActorSystemData {
     monitoring_by_monitored: Arc<DashMap<Aid, HashSet<Aid>>>,
     /// Holds a map of information objects about links to remote actor systems.
     remotes: Arc<DashMap<Uuid, RemoteInfo>>,
-    /// Holds the messages that have been enqueued for delayed send.
-    delayed_messages: Arc<(Mutex<BinaryHeap<DelayedMessage>>, Condvar)>,
 }
 
 /// An actor system that contains and manages the actors spawned inside it.
@@ -299,10 +265,27 @@ impl ActorSystem {
     /// on in order to satisfy the requirements of the software they are creating.
     pub fn create(config: ActorSystemConfig) -> ActorSystem {
         let uuid = Uuid::new_v4();
-        let threads = Mutex::new(Vec::with_capacity(config.thread_pool_size as usize));
-        let shutdown_triggered = Arc::new((Mutex::new(false), Condvar::new()));
 
-        let executor = MaximExecutor::new(shutdown_triggered.clone());
+        log::trace!("Starting executor thread pool");
+        
+        // Flag to indicate the system should shutdown
+        let shutdown_triggered = ChangeNotifier::new(Arc::new(AtomicBool::new(false)));
+
+        // Create an executor thread pool.
+        let mut threads = Vec::with_capacity(config.thread_pool_size as usize);
+        let shutdown_triggered_ = shutdown_triggered.clone();
+        for _ in 0..config.thread_pool_size {
+            let shutdown_triggered__ = shutdown_triggered_.clone();
+            // Spawn an executor thread that waits for the shutdown signal.
+            threads.push(thread::spawn(move || smol::run(async move {
+                loop {
+                    shutdown_triggered__.listen().await;
+                    if shutdown_triggered__.load(Ordering::SeqCst) {
+                        break;
+                    }
+                }
+            })));
+        }
 
         let start_on_launch = config.start_on_launch;
 
@@ -311,8 +294,6 @@ impl ActorSystem {
             data: Arc::new(ActorSystemData {
                 uuid,
                 config,
-                threads,
-                executor,
                 started: AtomicBool::new(false),
                 shutdown_triggered,
                 actors_by_aid: Arc::new(DashMap::default()),
@@ -320,7 +301,6 @@ impl ActorSystem {
                 aids_by_name: Arc::new(DashMap::default()),
                 monitoring_by_monitored: Arc::new(DashMap::default()),
                 remotes: Arc::new(DashMap::default()),
-                delayed_messages: Arc::new((Mutex::new(BinaryHeap::new()), Condvar::new())),
             }),
         };
 
@@ -340,21 +320,6 @@ impl ActorSystem {
             .compare_and_swap(false, true, Ordering::Relaxed)
         {
             log::info!("ActorSystem {} has spawned", self.data.uuid);
-            self.data.executor.init(self);
-
-            // We have the thread pool in a mutex to avoid a chicken & egg situation with the actor
-            // system not being created yet but needed by the thread. We put this code in a block to
-            // get around rust borrow constraints without unnecessarily copying things.
-            {
-                let mut guard = self.data.threads.lock().unwrap();
-
-                // Start the thread that reads from the `delayed_messages` queue.
-                // FIXME Put in ability to confirm how many of these to start.
-                for _ in 0..1 {
-                    let thread = self.start_send_after_thread();
-                    guard.push(thread);
-                }
-            }
 
             // Launch the SystemActor and give it the name "System"
             self.spawn()
@@ -362,45 +327,6 @@ impl ActorSystem {
                 .with(SystemActor, SystemActor::processor)
                 .unwrap();
         }
-    }
-
-    /// Starts a thread that monitors the delayed_messages and sends the messages when their
-    /// delays have elapsed.
-    // FIXME Add a graceful shutdown to this thread and notifications.
-    fn start_send_after_thread(&self) -> JoinHandle<()> {
-        let system = self.clone();
-        let delayed_messages = self.data.delayed_messages.clone();
-        thread::spawn(move || {
-            while !*system.data.shutdown_triggered.0.lock().unwrap() {
-                let (ref mutex, ref condvar) = &*delayed_messages;
-                let mut data = mutex.lock().unwrap();
-                match data.peek() {
-                    None => {
-                        // wait to be notified something is added.
-                        let _ = condvar.wait(data).unwrap();
-                    }
-                    Some(msg) => {
-                        let now = Instant::now();
-                        if now >= msg.instant {
-                            log::trace!("Sending delayed message");
-                            msg.destination
-                                .send(msg.message.clone())
-                                .unwrap_or_else(|error| {
-                                    log::warn!(
-                                        "Cannot send scheduled message to {}: Error {:?}",
-                                        msg.destination,
-                                        error
-                                    );
-                                });
-                            data.pop();
-                        } else {
-                            let duration = msg.instant.duration_since(now);
-                            let _result = condvar.wait_timeout(data, duration).unwrap();
-                        }
-                    }
-                }
-            }
-        })
     }
 
     /// Returns a reference to the config for this actor system.
@@ -416,117 +342,118 @@ impl ActorSystem {
             .map(|info| info.sender.clone())
     }
 
-    /// Adds a connection to a remote actor system. When the connection is established the
-    /// actor system will announce itself to the remote system with a [`WireMessage::Hello`].
-    pub fn connect(
-        &self,
-        sender: &SeccSender<WireMessage>,
-        receiver: &SeccReceiver<WireMessage>,
-    ) -> Uuid {
-        // Announce ourselves to the other system and get their info.
-        let hello = WireMessage::Hello {
-            system_actor_aid: self.system_actor_aid(),
-        };
-        sender.send(hello).unwrap();
-        log::debug!("Sending hello from {}", self.data.uuid);
+    // FIXME: Reimplement cluster support
+    // /// Adds a connection to a remote actor system. When the connection is established the
+    // /// actor system will announce itself to the remote system with a [`WireMessage::Hello`].
+    // pub fn connect(
+    //     &self,
+    //     sender: &SeccSender<WireMessage>,
+    //     receiver: &SeccReceiver<WireMessage>,
+    // ) -> Uuid {
+    //     // Announce ourselves to the other system and get their info.
+    //     let hello = WireMessage::Hello {
+    //         system_actor_aid: self.system_actor_aid(),
+    //     };
+    //     sender.send(hello).unwrap();
+    //     debug!("Sending hello from {}", self.data.uuid);
 
-        // FIXME (Issue #75) Make error handling in ActorSystem::connect more robust.
-        let system_actor_aid =
-            match receiver.receive_await_timeout(self.data.config.thread_wait_time) {
-                Ok(message) => match message {
-                    WireMessage::Hello { system_actor_aid } => system_actor_aid,
-                    _ => panic!("Expected first message to be a Hello"),
-                },
-                Err(e) => panic!("Expected to read a Hello message {:?}", e),
-            };
+    //     // FIXME (Issue #75) Make error handling in ActorSystem::connect more robust.
+    //     let system_actor_aid =
+    //         match receiver.receive_await_timeout(self.data.config.thread_wait_time) {
+    //             Ok(message) => match message {
+    //                 WireMessage::Hello { system_actor_aid } => system_actor_aid,
+    //                 _ => panic!("Expected first message to be a Hello"),
+    //             },
+    //             Err(e) => panic!("Expected to read a Hello message {:?}", e),
+    //         };
 
-        // Starts a thread to read incoming wire messages and process them.
-        let system = self.clone();
-        let receiver_clone = receiver.clone();
-        let thread_timeout = self.data.config.thread_wait_time;
-        let sys_uuid = system_actor_aid.system_uuid();
-        let handle = thread::spawn(move || {
-            system.init_current();
-            // FIXME (Issue #76) Add graceful shutdown for threads handling remotes including
-            // informing remote that the system is exiting.
-            while !*system.data.shutdown_triggered.0.lock().unwrap() {
-                match receiver_clone.receive_await_timeout(thread_timeout) {
-                    Err(_) => (), // not an error, just loop and try again.
-                    Ok(wire_msg) => system.process_wire_message(&sys_uuid, &wire_msg),
-                }
-            }
-        });
+    //     // Starts a thread to read incoming wire messages and process them.
+    //     let system = self.clone();
+    //     let receiver_clone = receiver.clone();
+    //     let thread_timeout = self.data.config.thread_wait_time;
+    //     let sys_uuid = system_actor_aid.system_uuid();
+    //     let handle = thread::spawn(move || {
+    //         system.init_current();
+    //         // FIXME (Issue #76) Add graceful shutdown for threads handling remotes including
+    //         // informing remote that the system is exiting.
+    //         while !*system.data.shutdown_triggered.0.lock().unwrap() {
+    //             match receiver_clone.receive_await_timeout(thread_timeout) {
+    //                 Err(_) => (), // not an error, just loop and try again.
+    //                 Ok(wire_msg) => system.process_wire_message(&sys_uuid, &wire_msg),
+    //             }
+    //         }
+    //     });
 
-        // Save the info and thread to the remotes map.
-        let info = RemoteInfo {
-            system_uuid: system_actor_aid.system_uuid(),
-            sender: sender.clone(),
-            receiver: receiver.clone(),
-            _handle: handle,
-            system_actor_aid,
-        };
+    //     // Save the info and thread to the remotes map.
+    //     let info = RemoteInfo {
+    //         system_uuid: system_actor_aid.system_uuid(),
+    //         sender: sender.clone(),
+    //         receiver: receiver.clone(),
+    //         _handle: handle,
+    //         system_actor_aid,
+    //     };
 
-        let uuid = info.system_uuid;
-        self.data.remotes.insert(uuid.clone(), info);
-        uuid
-    }
+    //     let uuid = info.system_uuid;
+    //     self.data.remotes.insert(uuid.clone(), info);
+    //     uuid
+    // }
 
-    /// Disconnects this actor system from the remote actor system with the given UUID.
-    // FIXME Connectivity management needs a lot of work and testing.
-    pub fn disconnect(&self, system_uuid: Uuid) -> Result<(), AidError> {
-        self.data.remotes.remove(&system_uuid);
-        Ok(())
-    }
+    // /// Disconnects this actor system from the remote actor system with the given UUID.
+    // // FIXME Connectivity management needs a lot of work and testing.
+    // pub fn disconnect(&self, system_uuid: Uuid) -> Result<(), AidError> {
+    //     self.data.remotes.remove(&system_uuid);
+    //     Ok(())
+    // }
 
-    /// Connects two actor systems using two channels directly. This can be used as a utility
-    /// in testing or to link two actor systems directly within the same process.
-    pub fn connect_with_channels(system1: &ActorSystem, system2: &ActorSystem) {
-        let (tx1, rx1) = secc::create::<WireMessage>(32, system1.data.config.thread_wait_time);
-        let (tx2, rx2) = secc::create::<WireMessage>(32, system2.data.config.thread_wait_time);
+    // /// Connects two actor systems using two channels directly. This can be used as a utility
+    // /// in testing or to link two actor systems directly within the same process.
+    // pub fn connect_with_channels(system1: &ActorSystem, system2: &ActorSystem) {
+    //     let (tx1, rx1) = secc::create::<WireMessage>(32, system1.data.config.thread_wait_time);
+    //     let (tx2, rx2) = secc::create::<WireMessage>(32, system2.data.config.thread_wait_time);
 
-        // We will do this in 2 threads because one connect would block waiting on a message
-        // from the other actor system, causing a deadlock.
-        let system1_clone = system1.clone();
-        let system2_clone = system2.clone();
-        let h1 = thread::spawn(move || system1_clone.connect(&tx1, &rx2));
-        let h2 = thread::spawn(move || system2_clone.connect(&tx2, &rx1));
+    //     // We will do this in 2 threads because one connect would block waiting on a message
+    //     // from the other actor system, causing a deadlock.
+    //     let system1_clone = system1.clone();
+    //     let system2_clone = system2.clone();
+    //     let h1 = thread::spawn(move || system1_clone.connect(&tx1, &rx2));
+    //     let h2 = thread::spawn(move || system2_clone.connect(&tx2, &rx1));
 
-        // Wait for the completion of the connection.
-        h1.join().unwrap();
-        h2.join().unwrap();
-    }
+    //     // Wait for the completion of the connection.
+    //     h1.join().unwrap();
+    //     h2.join().unwrap();
+    // }
 
-    /// A helper function to process a wire message from another actor system. The passed uuid
-    /// is the uuid of the remote that sent the message.
-    // FIXME (Issue #74) Make error handling in ActorSystem::process_wire_message more robust.
-    fn process_wire_message(&self, _uuid: &Uuid, wire_message: &WireMessage) {
-        match wire_message {
-            WireMessage::ActorMessage {
-                actor_uuid,
-                system_uuid,
-                message,
-            } => {
-                if let Some(aid) = self.find_aid(&system_uuid, &actor_uuid) {
-                    aid.send(message.clone()).unwrap_or_else(|error| {
-                        log::warn!("Could not send wire message to {}. Error: {}", aid, error);
-                    })
-                }
-            }
-            WireMessage::DelayedActorMessage {
-                duration,
-                actor_uuid,
-                system_uuid,
-                message,
-            } => {
-                self.find_aid(&system_uuid, &actor_uuid)
-                    .map(|aid| self.send_after(message.clone(), aid, *duration))
-                    .expect("Error not handled yet");
-            }
-            WireMessage::Hello { system_actor_aid } => {
-                log::debug!("{:?} Got Hello from {}", self.data.uuid, system_actor_aid);
-            }
-        }
-    }
+    // /// A helper function to process a wire message from another actor system. The passed uuid
+    // /// is the uuid of the remote that sent the message.
+    // // FIXME (Issue #74) Make error handling in ActorSystem::process_wire_message more robust.
+    // fn process_wire_message(&self, _uuid: &Uuid, wire_message: &WireMessage) {
+    //     match wire_message {
+    //         WireMessage::ActorMessage {
+    //             actor_uuid,
+    //             system_uuid,
+    //             message,
+    //         } => {
+    //             if let Some(aid) = self.find_aid(&system_uuid, &actor_uuid) {
+    //                 aid.send(message.clone()).unwrap_or_else(|error| {
+    //                     warn!("Could not send wire message to {}. Error: {}", aid, error);
+    //                 })
+    //             }
+    //         }
+    //         WireMessage::DelayedActorMessage {
+    //             duration,
+    //             actor_uuid,
+    //             system_uuid,
+    //             message,
+    //         } => {
+    //             self.find_aid(&system_uuid, &actor_uuid)
+    //                 .map(|aid| self.send_after(message.clone(), aid, *duration))
+    //                 .expect("Error not handled yet");
+    //         }
+    //         WireMessage::Hello { system_actor_aid } => {
+    //             debug!("{:?} Got Hello from {}", self.data.uuid, system_actor_aid);
+    //         }
+    //     }
+    // }
 
     /// Initializes this actor system to use for the current thread which is necessary if the
     /// user wishes to serialize and deserialize [`Aid`]s.
@@ -560,86 +487,88 @@ impl ActorSystem {
 
     /// Triggers a shutdown but doesn't wait for the Reactors to stop.
     pub fn trigger_shutdown(&self) {
-        let (ref mutex, ref condvar) = &*self.data.shutdown_triggered;
-        *mutex.lock().unwrap() = true;
-        condvar.notify_all();
+        self.data.shutdown_triggered.store(true, Ordering::SeqCst);
     }
 
     /// Awaits the Executor shutting down all Reactors. This is backed by a barrier that Reactors
     /// will wait on after [`ActorSystem::trigger_shutdown`] is called, blocking until all Reactors
     /// have stopped.
-    pub fn await_shutdown(&self, timeout: impl Into<Option<Duration>>) -> ShutdownResult {
-        log::info!("System awaiting shutdown");
+    pub fn await_shutdown(&self, timeout: impl Into<Option<Duration>>) {
+        unimplemented!("FIXME: Reimplement graceful shutdown");
+        // info!("System awaiting shutdown");
 
-        let start = Instant::now();
-        let timeout = timeout.into();
+        // let start = Instant::now();
+        // let timeout = timeout.into();
 
-        let result = match timeout {
-            Some(dur) => self.await_shutdown_trigger_with_timeout(dur),
-            None => self.await_shutdown_trigger_without_timeout(),
-        };
+        // let result = match timeout {
+        //     Some(dur) => self.await_shutdown_trigger_with_timeout(dur),
+        //     None => self.await_shutdown_trigger_without_timeout(),
+        // };
 
-        if let Some(r) = result {
-            return r;
-        }
+        // if let Some(r) = result {
+        //     return r;
+        // }
 
-        let timeout = {
-            match timeout {
-                Some(timeout) => {
-                    let elapsed = Instant::now().duration_since(start);
-                    if let Some(t) = timeout.checked_sub(elapsed) {
-                        Some(t)
-                    } else {
-                        return ShutdownResult::TimedOut;
-                    }
-                }
-                None => None,
-            }
-        };
+        // let timeout = {
+        //     match timeout {
+        //         Some(timeout) => {
+        //             let elapsed = Instant::now().duration_since(start);
+        //             if let Some(t) = timeout.checked_sub(elapsed) {
+        //                 Some(t)
+        //             } else {
+        //                 return ShutdownResult::TimedOut;
+        //             }
+        //         }
+        //         None => None,
+        //     }
+        // };
 
-        // Wait for the executor to finish shutting down
-        self.data.executor.await_shutdown(timeout)
+        // // Wait for the executor to finish shutting down
+        // self.data.executor.await_shutdown(timeout)
     }
 
-    fn await_shutdown_trigger_with_timeout(&self, mut dur: Duration) -> Option<ShutdownResult> {
-        let (ref mutex, ref condvar) = &*self.data.shutdown_triggered;
-        let mut guard = mutex.lock().unwrap();
-        while !*guard {
-            let started = Instant::now();
-            let (new_guard, timeout) = match condvar.wait_timeout(guard, dur) {
-                Ok(ret) => ret,
-                Err(_) => return Some(ShutdownResult::Panicked),
-            };
+    fn await_shutdown_trigger_with_timeout(&self, mut dur: Duration) {
+        unimplemented!("FIXME: Re-implement graceful shutdown")
+        // let (ref mutex, ref condvar) = &*self.data.shutdown_triggered;
+        // let mut guard = mutex.lock().unwrap();
+        // while !*guard {
+        //     let started = Instant::now();
+        //     let (new_guard, timeout) = match condvar.wait_timeout(guard, dur) {
+        //         Ok(ret) => ret,
+        //         Err(_) => return Some(ShutdownResult::Panicked),
+        //     };
 
-            if timeout.timed_out() {
-                return Some(ShutdownResult::TimedOut);
-            }
+        //     if timeout.timed_out() {
+        //         return Some(ShutdownResult::TimedOut);
+        //     }
 
-            guard = new_guard;
-            dur -= started.elapsed();
-        }
-        None
+        //     guard = new_guard;
+        //     dur -= started.elapsed();
+        // }
+        // None
     }
 
-    fn await_shutdown_trigger_without_timeout(&self) -> Option<ShutdownResult> {
-        let (ref mutex, ref condvar) = &*self.data.shutdown_triggered;
-        let mut guard = mutex.lock().unwrap();
-        while !*guard {
-            guard = match condvar.wait(guard) {
-                Ok(ret) => ret,
-                Err(_) => return Some(ShutdownResult::Panicked),
-            };
-        }
-        None
+    fn await_shutdown_trigger_without_timeout(&self) {
+        unimplemented!("FIXME: Re-implement graceful shutdown");
+        // let (ref mutex, ref condvar) = &*self.data.shutdown_triggered;
+        // let mut guard = mutex.lock().unwrap();
+        // while !*guard {
+        //     guard = match condvar.wait(guard) {
+        //         Ok(ret) => ret,
+        //         Err(_) => return Some(ShutdownResult::Panicked),
+        //     };
+        // }
+        // None
     }
 
     /// Triggers a shutdown of the system and returns only when all Reactors have shutdown.
     pub fn trigger_and_await_shutdown(
         &self,
         timeout: impl Into<Option<Duration>>,
-    ) -> ShutdownResult {
-        self.trigger_shutdown();
-        self.await_shutdown(timeout)
+    ) {
+        unimplemented!("FIXME: Re-implement graceful shutdown");
+        // self.trigger_shutdown();
+        // self.await_shutdown(timeout)
     }
 
     // An internal helper to register an actor in the actor system.
@@ -661,7 +590,7 @@ impl ActorSystem {
         }
         actors_by_aid.insert(aid.clone(), actor);
         aids_by_uuid.insert(aid.uuid(), aid.clone());
-        self.data.executor.register_actor(stream);
+        // self.data.executor.register_actor(stream);
         aid.send(Message::new(SystemMsg::Start)).unwrap(); // Actor was just made
         Ok(aid)
     }
@@ -729,28 +658,6 @@ impl ActorSystem {
             },
             count,
         )
-    }
-
-    /// Schedules the `aid` for work. Note that this is the only time that we have to use the
-    /// lookup table. This function gets called when an actor goes from 0 receivable messages to
-    /// 1 receivable message. If the actor has more receivable messages then this will not be
-    /// needed to be called because the dispatcher threads will handle the process of resending
-    /// the actor to the work channel.
-    // TODO Put tests verifying the resend on multiple messages.
-    pub(crate) fn schedule(&self, aid: Aid) {
-        let actors_by_aid = &self.data.actors_by_aid;
-        if actors_by_aid.contains_key(&aid) {
-            self.data.executor.wake(aid);
-        } else {
-            // The actor was removed from the map so ignore the problem and just log
-            // a warning.
-            log::warn!(
-                "Attempted to schedule actor with aid {:?} on system with node_id {:?} but
-                the actor does not exist.",
-                aid,
-                self.data.uuid.to_string(),
-            );
-        }
     }
 
     /// Stops an actor by shutting down its channels and removing it from the actors list and
@@ -865,22 +772,11 @@ impl ActorSystem {
     /// not be sent on exactly the delay passed. However, the message will never be sent before
     /// the given delay.
     pub(crate) fn send_after(&self, message: Message, destination: Aid, delay: Duration) {
-        let instant = Instant::now().checked_add(delay).unwrap();
-        let entry = DelayedMessage {
-            uuid: Uuid::new_v4(),
-            destination,
-            instant,
-            message,
-        };
-        let (ref mutex, ref condvar) = &*self.data.delayed_messages;
-        let mut data = mutex.lock().unwrap();
-        data.push(entry);
-        condvar.notify_all();
-    }
+        Task::spawn(async move {
+            Timer::after(delay).await;
 
-    #[cfg(test)]
-    pub(crate) fn executor(&self) -> &MaximExecutor {
-        &self.data.executor
+            destination.send(message);
+        }).detach();
     }
 }
 
@@ -907,13 +803,15 @@ mod tests {
     fn start_and_connect_two_systems() -> (ActorSystem, ActorSystem) {
         let system1 = ActorSystem::create(ActorSystemConfig::default().thread_pool_size(2));
         let system2 = ActorSystem::create(ActorSystemConfig::default().thread_pool_size(2));
-        ActorSystem::connect_with_channels(&system1, &system2);
+        unimplemented!("FIXME: Re-implement cluster support");
+        // ActorSystem::connect_with_channels(&system1, &system2);
         (system1, system2)
     }
 
     /// Helper to wait for 2 actor systems to shutdown or panic if they don't do so within
     /// 2000 milliseconds.
     fn await_two_system_shutdown(system1: ActorSystem, system2: ActorSystem) {
+        unimplemented!("FIXME: Re-implement graceful shutdown");
         let h1 = thread::spawn(move || {
             system1.await_shutdown(None);
         });
@@ -930,6 +828,7 @@ mod tests {
     /// timeout work properly.
     #[test]
     fn test_shutdown_await_timeout() {
+        unimplemented!("FIXME: Re-implement graceful shutdown");
         use std::time::Duration;
 
         let system = ActorSystem::create(ActorSystemConfig::default().thread_pool_size(2));
@@ -946,16 +845,16 @@ mod tests {
             .unwrap();
 
         // Expecting to timeout
-        assert_eq!(
-            system.await_shutdown(Duration::from_millis(10)),
-            ShutdownResult::TimedOut
-        );
+        // assert_eq!(
+        //     system.await_shutdown(Duration::from_millis(10)),
+        //     ShutdownResult::TimedOut
+        // );
 
         // Expecting to NOT timeout
-        assert_eq!(
-            system.await_shutdown(Duration::from_millis(200)),
-            ShutdownResult::Ok
-        );
+        // assert_eq!(
+        //     system.await_shutdown(Duration::from_millis(200)),
+        //     ShutdownResult::Ok
+        // );
 
         // Validate that if the system is already shutdown the method doesn't hang.
         // FIXME Design a means that this cannot ever hang the test.
@@ -1128,7 +1027,8 @@ mod tests {
     fn test_connect_with_channels() {
         let system1 = ActorSystem::create(ActorSystemConfig::default().thread_pool_size(2));
         let system2 = ActorSystem::create(ActorSystemConfig::default().thread_pool_size(2));
-        ActorSystem::connect_with_channels(&system1, &system2);
+        unimplemented!("FIXME: Re-implement cluster support");
+        // ActorSystem::connect_with_channels(&system1, &system2);
         {
             system1
                 .data

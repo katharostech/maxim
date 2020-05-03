@@ -344,9 +344,9 @@ impl Aid {
                 } else {
                     match sender.send_await_timeout(message, system.config().send_timeout) {
                         Ok(_) => {
-                            if sender.receivable() == 1 {
-                                system.schedule(self.clone());
-                            };
+                            // if sender.receivable() == 1 {
+                            //     system.schedule(self.clone());
+                            // };
                             Ok(())
                         }
                         Err(_) => Err(AidError::SendTimedOut(self.clone())),
@@ -1436,6 +1436,7 @@ mod tests {
     /// instead of panic.
     #[test]
     fn test_aid_serialization() {
+        unimplemented!("FIXME: Re-implement cluster support.");
         let system = ActorSystem::create(ActorSystemConfig::default().thread_pool_size(2));
         let aid1 = system.spawn().with((), simple_handler).unwrap();
         system.init_current(); // Required by Aid serialization.
@@ -1466,7 +1467,7 @@ mod tests {
             let system2 = ActorSystem::create(ActorSystemConfig::default().thread_pool_size(2));
             system2.init_current();
             // Connect the systems so the remote channel can be used.
-            ActorSystem::connect_with_channels(&system, &system2);
+            // ActorSystem::connect_with_channels(&system, &system2);
 
             let deserialized: Aid = bincode::deserialize(&aid1_serialized).unwrap();
             match deserialized.data.sender {
@@ -1483,7 +1484,7 @@ mod tests {
 
             // Disconnecting the remote then attempting to deserialize the Aid should result in a
             // deserialization error.
-            system2.disconnect(aid1.system_uuid()).unwrap();
+            // system2.disconnect(aid1.system_uuid()).unwrap();
             let aid1_deserialized = bincode::deserialize::<Aid>(&aid1_serialized);
             assert!(aid1_deserialized.is_err());
         });

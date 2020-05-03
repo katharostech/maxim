@@ -1,16 +1,24 @@
 //! The Executor is responsible for the high-level scheduling of Actors.
 
-use crate::actors::ActorStream;
-use crate::executor::thread_pool::MaximThreadPool;
-use crate::prelude::*;
+// use dashmap::DashMap;
 use dashmap::DashMap;
 use futures::task::ArcWake;
 use futures::Stream;
+use piper::ChangeNotifier;
+
 use std::collections::{BTreeMap, VecDeque};
 use std::pin::Pin;
-use std::sync::{Arc, Condvar, Mutex, RwLock};
+use std::sync::{
+    atomic::{AtomicBool, Ordering::SeqCst},
+    Arc, Condvar, Mutex, RwLock,
+};
 use std::task::{Context, Poll, Waker};
+use std::thread;
 use std::time::{Duration, Instant};
+
+use crate::actors::ActorStream;
+// use crate::executor::thread_pool::MaximThreadPool;
+use crate::prelude::*;
 
 mod thread_pool;
 
@@ -21,51 +29,29 @@ mod thread_pool;
 #[derive(Clone)]
 pub(crate) struct MaximExecutor {
     /// The system's "is shutting down" flag.
-    shutdown_triggered: Arc<(Mutex<bool>, Condvar)>,
-    /// Barrier to await shutdown on.
-    thread_pool: Arc<MaximThreadPool>,
+    shutdown_triggered: ChangeNotifier<Arc<AtomicBool>>,
+    // /// Barrier to await shutdown on.
+    // thread_pool: Arc<MaximThreadPool>,
     /// Actors that have no messages available.
     sleeping: Arc<DashMap<Aid, Task>>,
-    /// All Reactors owned by this Executor.
-    reactors: Arc<DashMap<u16, MaximReactor>>,
-    /// Counting actors per reactor for even distribution of Actors.
-    actors_per_reactor: Arc<DashMap<u16, u32>>,
+    // /// All Reactors owned by this Executor.
+    // reactors: Arc<DashMap<u16, MaximReactor>>,
+    // /// Counting actors per reactor for even distribution of Actors.
+    // actors_per_reactor: Arc<DashMap<u16, u32>>,
 }
 
 impl MaximExecutor {
-    /// Creates a new Executor with the given actor system configuration. This will govern the
-    /// configuration of the executor.
-    pub(crate) fn new(shutdown_triggered: Arc<(Mutex<bool>, Condvar)>) -> Self {
+    /// Creates a new Executor with the given actor system configuration. This starts the thread pool.
+    pub(crate) fn new(
+        config: &ActorSystemConfig,
+        shutdown_triggered: Arc<(Mutex<bool>, Condvar)>,
+    ) -> Self {
         Self {
             shutdown_triggered,
-            thread_pool: Default::default(),
+            // thread_pool: Default::default(),
             sleeping: Default::default(),
-            reactors: Default::default(),
-            actors_per_reactor: Default::default(),
-        }
-    }
-
-    /// Initializes the executor and starts the MaximReactor instances based on the count of the
-    /// number of threads configured in the actor system. This must be called before any work can
-    /// be performed with the actor system.
-    pub(crate) fn init(&self, system: &ActorSystem) {
-        for i in 0..system.data.config.thread_pool_size {
-            let reactor = MaximReactor::new(self.clone(), system, i);
-            self.reactors.insert(i, reactor.clone());
-            self.actors_per_reactor.insert(i, 0);
-            let sys = system.clone();
-            log::info!("Spawning Reactors");
-            self.thread_pool
-                .spawn(format!("Reactor-{}", reactor.name), move || {
-                    sys.init_current();
-                    futures::executor::enter().expect("Executor nested in other executor");
-                    loop {
-                        // `MaximReactor::thread` returns true if it's set to be ran again.
-                        if !reactor.thread() {
-                            break;
-                        }
-                    }
-                });
+            // reactors: Default::default(),
+            // actors_per_reactor: Default::default(),
         }
     }
 

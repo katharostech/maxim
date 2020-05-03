@@ -199,8 +199,9 @@ pub use futures;
 use prelude::*;
 
 pub mod actors;
-pub mod cluster;
-mod executor;
+// FIXME: Implement new async cluster support
+// pub mod cluster;
+// mod executor;
 pub mod message;
 pub mod system;
 
