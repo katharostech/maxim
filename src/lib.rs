@@ -198,6 +198,9 @@ use std::fmt::{Display, Formatter};
 pub use futures;
 use prelude::*;
 
+// Skip Enabled Concurrent Channels
+pub(crate) mod secc;
+
 pub mod actors;
 // FIXME: Implement new async cluster support
 // pub mod cluster;
@@ -246,6 +249,7 @@ mod tests {
     use std::time::Duration;
 
     use log::LevelFilter;
+    extern crate secc;
     use secc::{SeccReceiver, SeccSender};
     use serde::{Deserialize, Serialize};
 

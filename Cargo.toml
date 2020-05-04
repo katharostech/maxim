@@ -61,6 +61,7 @@ serde_json = "^1.0.40"
 [dependencies]
 smol = "0.1.4" # Async Executor
 piper = { path = "lib/piper" } # Async pipes, channels, mutexes, and more
+flume = { version = "0.7.1", default-features = false, features = ["async"] }
 futures = "0.3.1" # Async Utils
 serde = { version = "1.0.97", features = ["derive", "rc"] } # Serialization support
 bincode = "1.1.4" # RPC Serialization
