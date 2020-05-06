@@ -67,12 +67,12 @@ impl MaximExecutor {
     /// This wakes an ActorStream in the Executor which will cause its future to be polled. The Aid,
     /// through the ActorSystem, will call this on Message Send.
     pub(crate) fn wake(&self, id: Aid) {
-        log::trace!("Waking Actor `{}`", id.name_or_uuid());
+        trace!("Waking Actor `{}`", id.name_or_uuid());
         // Pull the Task
         let task = match self.sleeping.remove(&id) {
             Some((_, task)) => task,
             None => {
-                log::debug!(
+                debug!(
                     "Actor `{}` not in Executor - already woken or stopped",
                     id.name_or_uuid()
                 );
@@ -104,7 +104,7 @@ impl MaximExecutor {
     /// When a Reactor is done with an task, it will be sent here, and the Executor will decrement
     /// the Actor count for that Reactor.
     fn return_task(&self, task: Task, reactor: &MaximReactor) {
-        log::trace!(
+        trace!(
             "Actor {} returned from Reactor {}",
             task.id.name_or_uuid(),
             reactor.name
@@ -119,7 +119,7 @@ impl MaximExecutor {
     /// triggered.
     pub(crate) fn await_shutdown(&self, timeout: impl Into<Option<Duration>>) -> ShutdownResult {
         let start = Instant::now();
-        log::info!("Notifying Reactor threads, so they can end gracefully");
+        info!("Notifying Reactor threads, so they can end gracefully");
         for r in self.reactors.iter() {
             match r.thread_condvar.read() {
                 Ok(g) => g.1.notify_one(),
@@ -127,7 +127,7 @@ impl MaximExecutor {
             }
         }
         let timeout = timeout.into().map(|t| t - (Instant::now() - start));
-        log::info!("Awaiting the threadpool's shutdown");
+        info!("Awaiting the threadpool's shutdown");
         self.thread_pool.await_shutdown(timeout)
     }
 }
@@ -177,7 +177,7 @@ impl MaximReactor {
     /// Creates a new Reactor
     fn new(executor: MaximExecutor, system: &ActorSystem, id: u16) -> MaximReactor {
         let name = format!("{:08x?}-{}", system.data.uuid.as_fields().0, id);
-        log::debug!("Creating Reactor {}", name);
+        debug!("Creating Reactor {}", name);
 
         MaximReactor {
             id,
@@ -219,7 +219,7 @@ impl MaximReactor {
                 .lock()
                 .expect("Poisoned shutdown_triggered condvar")
             {
-                log::debug!("Reactor-{} acknowledging shutdown", self.name);
+                debug!("Reactor-{} acknowledging shutdown", self.name);
                 return false;
             }
         }
@@ -264,13 +264,13 @@ impl MaximReactor {
                 // Still pending, return to wait_queue. Drop the wakeup, because the futures
                 // will re-add it later through their wakers.
                 Poll::Pending => {
-                    log::trace!("Reactor-{} waiting on pending Actor", self.name);
+                    trace!("Reactor-{} waiting on pending Actor", self.name);
                     self.wait(task);
                     break;
                 }
             }
             if Instant::now().duration_since(start) >= self.warn_threshold {
-                log::warn!(
+                warn!(
                     "Actor {} took longer than configured warning threshold",
                     aid.name_or_uuid()
                 );
@@ -289,14 +289,14 @@ impl MaximReactor {
     fn get_work(&self) -> LoopResult<(Wakeup, Task)> {
         if let Some(w) = self.get_woken() {
             if let Some(task) = self.remove_waiting(&w.id) {
-                log::trace!(
+                trace!(
                     "Reactor-{} received Wakeup for Actor `{}`",
                     self.name,
                     task.id.name_or_uuid()
                 );
                 LoopResult::Ok((w, task))
             } else {
-                log::trace!("Reactor-{} dropping spurious WakeUp", self.name);
+                trace!("Reactor-{} dropping spurious WakeUp", self.name);
                 LoopResult::Continue
             }
         } else {
@@ -305,12 +305,12 @@ impl MaximReactor {
                 .read()
                 .expect("Poisoned Reactor condvar");
 
-            log::trace!("Reactor-{} waiting on condvar", self.name);
+            trace!("Reactor-{} waiting on condvar", self.name);
             let g = mutex.lock().expect("Poisoned Reactor condvar");
             let _ = condvar
                 .wait_timeout(g, self.thread_wait_time)
                 .expect("Poisoned Reactor condvar");
-            log::trace!("Reactor-{} resuming", self.name);
+            trace!("Reactor-{} resuming", self.name);
             LoopResult::Continue
         }
     }
@@ -430,7 +430,7 @@ mod tests {
                 0 => Poll::Ready(Ok(Status::done(()))),
                 count => {
                     *count -= 1;
-                    log::debug!("Pending, {} times left", count);
+                    debug!("Pending, {} times left", count);
                     let waker = cx.waker().clone();
                     let sleep_for = self.sleep_for;
                     thread::spawn(move || {

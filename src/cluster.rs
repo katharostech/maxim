@@ -101,7 +101,7 @@ impl TcpClusterMgr {
             system.init_current();
             let sys_uuid = system.uuid();
             let listener = TcpListener::bind(address).unwrap();
-            log::info!("{}: Listening for connections on {}.", sys_uuid, address);
+            info!("{}: Listening for connections on {}.", sys_uuid, address);
 
             // Notify the cluster manager that the listener is ready.
             let (mutex, condvar) = &*pair;
@@ -115,15 +115,14 @@ impl TcpClusterMgr {
             while manager.data.running.load(Ordering::Relaxed) {
                 match listener.accept() {
                     Ok((stream, socket_address)) => {
-                        log::info!(
+                        info!(
                             "{}: Accepting connection from: {}.",
-                            sys_uuid,
-                            socket_address
+                            sys_uuid, socket_address
                         );
                         manager.start_tcp_threads(stream, socket_address);
                     }
                     Err(e) => {
-                        log::error!("couldn't get client: {:?}", e);
+                        error!("couldn't get client: {:?}", e);
                     }
                 }
             }
@@ -160,7 +159,7 @@ impl TcpClusterMgr {
             rx_handle,
         };
 
-        log::info!(
+        info!(
             "{:?}: Connected to {:?}@{:?}",
             self.data.system.uuid(),
             system_uuid,

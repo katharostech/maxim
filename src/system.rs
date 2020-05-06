@@ -11,11 +11,11 @@
 
 use dashmap::DashMap;
 use once_cell::sync::OnceCell;
+use piper::ChangeNotifier;
 use secc::{SeccReceiver, SeccSender};
 use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 use smol::{Task, Timer};
-use piper::ChangeNotifier;
+use uuid::Uuid;
 
 use std::collections::{BinaryHeap, HashSet};
 use std::error::Error;
@@ -266,8 +266,7 @@ impl ActorSystem {
     pub fn create(config: ActorSystemConfig) -> ActorSystem {
         let uuid = Uuid::new_v4();
 
-        log::trace!("Starting executor thread pool");
-        
+        trace!("Starting executor thread pool");
         // Flag to indicate the system should shutdown
         let shutdown_triggered = ChangeNotifier::new(Arc::new(AtomicBool::new(false)));
 
@@ -277,14 +276,16 @@ impl ActorSystem {
         for _ in 0..config.thread_pool_size {
             let shutdown_triggered__ = shutdown_triggered_.clone();
             // Spawn an executor thread that waits for the shutdown signal.
-            threads.push(thread::spawn(move || smol::run(async move {
-                loop {
-                    shutdown_triggered__.listen().await;
-                    if shutdown_triggered__.load(Ordering::SeqCst) {
-                        break;
+            threads.push(thread::spawn(move || {
+                smol::run(async move {
+                    loop {
+                        shutdown_triggered__.listen().await;
+                        if shutdown_triggered__.load(Ordering::SeqCst) {
+                            break;
+                        }
                     }
-                }
-            })));
+                })
+            }));
         }
 
         let start_on_launch = config.start_on_launch;
@@ -319,7 +320,7 @@ impl ActorSystem {
             .started
             .compare_and_swap(false, true, Ordering::Relaxed)
         {
-            log::info!("ActorSystem {} has spawned", self.data.uuid);
+            info!("ActorSystem {} has spawned", self.data.uuid);
 
             // Launch the SystemActor and give it the name "System"
             self.spawn()
@@ -562,10 +563,7 @@ impl ActorSystem {
     }
 
     /// Triggers a shutdown of the system and returns only when all Reactors have shutdown.
-    pub fn trigger_and_await_shutdown(
-        &self,
-        timeout: impl Into<Option<Duration>>,
-    ) {
+    pub fn trigger_and_await_shutdown(&self, timeout: impl Into<Option<Duration>>) {
         unimplemented!("FIXME: Re-implement graceful shutdown");
         // self.trigger_shutdown();
         // self.await_shutdown(timeout)
@@ -695,10 +693,9 @@ impl ActorSystem {
                     error: error.clone(),
                 };
                 m_aid.send(Message::new(value)).unwrap_or_else(|error| {
-                    log::error!(
+                    error!(
                         "Could not send 'Stopped' to monitoring actor {}: Error: {:?}",
-                        m_aid,
-                        error
+                        m_aid, error
                     );
                 });
             }
@@ -758,11 +755,11 @@ impl ActorSystem {
     // FIXME (Issue #72) Add try_send ability.
     pub fn send_to_system_actors(&self, message: Message) {
         let remotes = &*self.data.remotes;
-        log::trace!("Sending message to Remote System Actors");
+        trace!("Sending message to Remote System Actors");
         for remote in remotes.iter() {
             let aid = &remote.value().system_actor_aid;
             aid.send(message.clone()).unwrap_or_else(|error| {
-                log::error!("Could not send to system actor {}. Error: {}", aid, error)
+                error!("Could not send to system actor {}. Error: {}", aid, error)
             });
         }
     }
@@ -776,7 +773,8 @@ impl ActorSystem {
             Timer::after(delay).await;
 
             destination.send(message);
-        }).detach();
+        })
+        .detach();
     }
 }
 
@@ -945,17 +943,17 @@ mod tests {
     fn test_send_after() {
         init_test_log();
 
-        log::info!("Preparing test");
+        info!("Preparing test");
         let system = ActorSystem::create(ActorSystemConfig::default().thread_pool_size(2));
         let aid = system.spawn().name("A").with((), simple_handler).unwrap();
         await_received(&aid, 1, 1000).unwrap();
-        log::info!("Test prepared, sending delayed message");
+        info!("Test prepared, sending delayed message");
 
         system.send_after(Message::new(11), aid.clone(), Duration::from_millis(10));
-        log::info!("Sleeping for initial check");
+        info!("Sleeping for initial check");
         sleep(5);
         assert_eq!(1, aid.received().unwrap());
-        log::info!("Sleeping till we're 100% sure we should have the message");
+        info!("Sleeping till we're 100% sure we should have the message");
         sleep(10);
         assert_eq!(2, aid.received().unwrap());
 
@@ -1117,11 +1115,11 @@ mod tests {
             .spawn()
             .with((), |_: (), _: Context, msg: Message| {
                 if let Some(_) = msg.content_as::<SystemMsg>() {
-                    log::debug!("Not panicking this time");
+                    debug!("Not panicking this time");
                     return future::ok(Status::done(()));
                 }
 
-                log::debug!("About to panic");
+                debug!("About to panic");
                 panic!("I panicked")
             })
             .unwrap();
@@ -1236,13 +1234,13 @@ mod tests {
             .spawn()
             .with((), move |_: (), context: Context, message: Message| {
                 if let Some(_) = message.content_as::<Reply>() {
-                    log::debug!("Received reply, shutting down");
+                    debug!("Received reply, shutting down");
                     context.system.trigger_shutdown();
                     future::ok(Status::stop(()))
                 } else if let Some(msg) = message.content_as::<SystemMsg>() {
                     match &*msg {
                         SystemMsg::Start => {
-                            log::debug!("Starting request actor");
+                            debug!("Starting request actor");
                             let target_aid: Aid = bincode::deserialize(&serialized).unwrap();
                             target_aid
                                 .send_new(Request {
@@ -1297,7 +1295,7 @@ mod tests {
                     if let Some(msg) = message.content_as::<SystemActorMessage>() {
                         match &*msg {
                             SystemActorMessage::FindByNameResult { aid: found, .. } => {
-                                log::debug!("FindByNameResult received");
+                                debug!("FindByNameResult received");
                                 if let Some(target) = found {
                                     t.assert(
                                         target.uuid() == aid1.uuid(),
@@ -1313,7 +1311,7 @@ mod tests {
                             _ => t.panic("Unexpected message received!"),
                         }
                     } else if let Some(msg) = message.content_as::<SystemMsg>() {
-                        log::debug!("Actor started, attempting to send FindByName request");
+                        debug!("Actor started, attempting to send FindByName request");
                         if let SystemMsg::Start = &*msg {
                             context.system.send_to_system_actors(Message::new(
                                 SystemActorMessage::FindByName {

@@ -20,8 +20,9 @@
 //! panics ensue. Some FSM implementations might be quite a bit more lose, preferring to ignore
 //! badly timed messages. This is largely up to the user.
 
-use log::LevelFilter;
 use maxim::prelude::*;
+use tracing::{error, info};
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
@@ -89,20 +90,17 @@ impl Fork {
                     // Resetting the skip allows fork requests to be processed.
                     Ok(Status::reset(self))
                 } else {
-                    log::error!(
+                    error!(
                         "[{}] fork_put_down() from non-owner: {} real owner is: {}",
-                        context.aid,
-                        sender,
-                        owner
+                        context.aid, sender, owner
                     );
                     Ok(Status::done(self))
                 }
             }
             None => {
-                log::error!(
+                error!(
                     "[{}] fork_put_down() from non-owner: {} real owner is: None:",
-                    context.aid,
-                    sender
+                    context.aid, sender
                 );
                 Ok(Status::done(self))
             }
@@ -121,12 +119,12 @@ impl Fork {
                     // has been marked as being dirty.
                     Ok(Status::reset(self))
                 } else {
-                    log::error!("[{}] Got UsingFork from non-owner: {}", context.aid, sender);
+                    error!("[{}] Got UsingFork from non-owner: {}", context.aid, sender);
                     Ok(Status::done(self))
                 }
             }
             _ => {
-                log::error!("[{}] Got UsingFork from non-owner: {}", context.aid, sender);
+                error!("[{}] Got UsingFork from non-owner: {}", context.aid, sender);
                 Ok(Status::done(self))
             }
         }
@@ -319,10 +317,10 @@ impl Philosopher {
                         self.request_missing_forks(context)?;
                     }
                     PhilosopherState::Hungry => {
-                        log::error!("[{}] Got BecomeHungry while eating!", context.aid);
+                        error!("[{}] Got BecomeHungry while eating!", context.aid);
                     }
                     PhilosopherState::Eating => {
-                        log::error!("[{}] Got BecomeHungry while eating!", context.aid);
+                        error!("[{}] Got BecomeHungry while eating!", context.aid);
                     }
                 };
             }
@@ -373,12 +371,9 @@ impl Philosopher {
                 fork_aid.send_new(ForkCommand::ForkPutDown(context.aid.clone()))?;
             }
         } else {
-            log::error!(
+            error!(
                 "[{}] Unknown fork asked for: {}:\n left ==>  {}\n right ==> {}",
-                context.aid,
-                fork_aid,
-                self.left_fork_aid,
-                self.right_fork_aid
+                context.aid, fork_aid, self.left_fork_aid, self.right_fork_aid
             );
         }
 
@@ -443,17 +438,10 @@ struct EndSimulation {}
 /// actors.
 pub fn main() {
     let args: Vec<String> = env::args().collect();
-    let level = if args.contains(&"-v".to_string()) {
-        LevelFilter::Debug
-    } else {
-        LevelFilter::Info
-    };
 
-    env_logger::builder()
-        .filter_level(level)
-        .is_test(true)
-        .try_init()
-        .unwrap();
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .init();
 
     // FIXME Let the user pass in the number of philosophers at the table, time slice
     // and runtime as command line parameters.
@@ -518,9 +506,9 @@ pub fn main() {
                         // output the results of the simulation and end the program by shutting
                         // down the actor system.
                         if !state.iter().any(|(_, metrics)| metrics.is_none()) {
-                            log::info!("Final Metrics:");
+                            info!("Final Metrics:");
                             for (aid, metrics) in state.iter() {
-                                log::info!("{}: {:?}", aid, metrics);
+                                info!("{}: {:?}", aid, metrics);
                             }
                             context.system.trigger_shutdown();
                         }
