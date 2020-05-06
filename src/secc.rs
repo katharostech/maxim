@@ -8,6 +8,7 @@ use std::collections::VecDeque;
 ///
 /// > **note:** The type `T` should be efficiently clonable as calls to [`SeccReceiver::peek`]
 /// > must clone the value. Using an [`Arc`] is one way to do this.
+#[tracing::instrument]
 pub fn secc_unbounded<T: Clone>() -> (SeccSender<T>, SeccReceiver<T>) {
     let (flume_sender, flume_receiver) = flume::unbounded();
 
@@ -21,6 +22,7 @@ pub fn secc_unbounded<T: Clone>() -> (SeccSender<T>, SeccReceiver<T>) {
 ///
 /// > **note:** The type `T` should be efficiently clonable as calls to [`SeccReceiver::peek`]
 /// > must clone the value. Using an [`Arc`] is one way to do this.
+#[tracing::instrument]
 pub fn secc_bounded<T: Clone>(capacity: usize) -> (SeccSender<T>, SeccReceiver<T>) {
     let (flume_sender, flume_receiver) = flume::bounded(capacity);
 
@@ -82,15 +84,24 @@ impl<T: Clone> SeccReceiver<T> {
     }
 
     /// Peek at the next message in the channel
+    #[tracing::instrument(skip(self))]
     pub async fn peek(&mut self) -> Result<T, flume::RecvError> {
         // If we already have a peeked message, return it
         if let Some(msg) = &self.peeked_message {
+            trace!("Returning the value we have previously peeked at");
             Ok(msg.clone())
 
         // If we are resetting, peek the message from the skipped queue
         } else if self.is_resetting {
+            trace!("We are in the middle of resetting");
+
             // Get the next message in the queue
             if let Some(msg) = self.skipped.get(0) {
+                trace!("Grabbing the message off the top of the skipped queue");
+
+                self.reset_until -= 1;
+                trace!(self.reset_until, "Decremented self.reset_until");
+
                 Ok(msg.clone())
 
             } else {
@@ -101,9 +112,11 @@ impl<T: Clone> SeccReceiver<T> {
         // If we don't already have a peeked message and we aren't resetting
         } else {
             // Get the next message in the channel
+            trace!("Grabbing the next element in the channel");
             let msg = self.receiver.recv_async().await?;
 
             // Clone it and put it in our peeked message slot
+            trace!("Sticking message in our peeked slot");
             self.peeked_message = Some(msg.clone());
 
             // Return the message
@@ -112,48 +125,59 @@ impl<T: Clone> SeccReceiver<T> {
     }
 
     /// Receive the next message in the channel
+    #[tracing::instrument(skip(self))]
     pub async fn recv(&mut self) -> Result<T, flume::RecvError> {
         // If we are currently resetting
         if self.is_resetting {
+            trace!("We are in the middle of resetting");
+            
             // Pop the next message off of the skipped queue
+            trace!("Grabbing next element off of the skipped queue");                    
             if let Some(msg) = self.skipped.pop_front() {
-                // Decrement the reset until cursor to make sure it stays pointing at the same message
                 self.reset_until -= 1;
-
-                // If this was the last message we were supposed to reset until
+                trace!(self.reset_until, "Decremented reset_until");
+                
                 if self.reset_until == 0 {
-                    // Go out of resetting mode
+                    trace!("reset_unitl == 0: going out of reset mode");
                     self.is_resetting = false;
                 }
 
+                trace!("Returning skipped message");
                 Ok(msg)
-            // If there is no message, go out of resetting mode and return the next message in the channel
+
             } else {
-                self.is_resetting = false;
-                self.receiver.recv_async().await
+                unreachable!("There should be an element in the skipped queue as we are in \
+                the middle of resetting still")
             }
 
         // If we have a peeked message, return that one
         } else if let Some(msg) = self.peeked_message.take() {
+            trace!("Returning the message out of the peeked slot");
             Ok(msg)
 
         // Get the message from the channel
         } else {
+            trace!("Getting next message from channel");
             self.receiver.recv_async().await
         }
     }
 
     /// Skip the next message in the channel
+    #[tracing::instrument(skip(self))]
     pub async fn skip(&mut self) -> Result<(), flume::RecvError> {
         // Get the message to skip
         let msg = 
             // If we have a peeked message skip that one
             if let Some(msg) = self.peeked_message.take() {
+                trace!("Selecting the message that is in the peeked slot");
                 msg
             
             // If we are resetting, skip the one off of the top of the skipped queue
             } else if self.is_resetting {
+                trace!("We are in the middle of resetting");
+
                 if let Some(msg) = self.skipped.pop_front() {
+                    trace!("Selecting the next message in the skipped queue");
                     msg
                 } else {
                     unreachable!("If we are resetting there should be a message in the skipped \
@@ -162,10 +186,12 @@ impl<T: Clone> SeccReceiver<T> {
 
             // Otherwise, get the next message from the channel and skip it
             } else {
+                trace!("Selecting the next message from the channel");
                 self.receiver.recv_async().await?
             };
 
         // Add it to the skipped message queue
+        trace!("Skipping selected message");
         self.skipped.push_back(msg);
 
         Ok(())
@@ -173,11 +199,13 @@ impl<T: Clone> SeccReceiver<T> {
 
     /// Causes `recv` to return previously skipped messages untill ther are none, where it starts
     /// collecting the messages from the channel again
+    #[tracing::instrument(skip(self))]
     pub fn reset_skip(&mut self) {
         // Go into resetting mode
         self.is_resetting = true;
         // Reset until the end of the skipped message queue
-        self.reset_until = self.skipped.len() - 1;
+        self.reset_until = self.skipped.len();
+        trace!(self.reset_until, "Resetting skips. Going into reset mode.")
     }
 }
 
@@ -185,9 +213,14 @@ impl<T: Clone> SeccReceiver<T> {
 mod test {
     use super::*;
 
+    #[derive(Debug)]
     enum Mode {
         Bounded(usize),
         Unbounded,
+    }
+
+    fn init_logging() {
+        tracing_subscriber::fmt::try_init().ok();
     }
 
     fn get_channel<T: Clone>(mode: Mode) -> (SeccSender<T>, SeccReceiver<T>) {
@@ -197,6 +230,7 @@ mod test {
         }
     }
 
+    #[tracing::instrument]
     fn basic(mode: Mode) {
         smol::run(async move {
             // Create a secc channel
@@ -299,12 +333,14 @@ mod test {
         });
     }
     #[test]
-    fn bounded_basic() {
+    fn secc_bounded_basic() {
+        init_logging();
         basic(Mode::Bounded(100));
     }
 
     #[test]
-    fn unbounded_basic() {
+    fn secc_unbounded_basic() {
+        init_logging();
         basic(Mode::Unbounded);
     }
 }
