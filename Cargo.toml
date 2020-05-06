@@ -79,7 +79,6 @@ futures = "0.3.1" # Async Utils
 serde = { version = "1.0.97", features = ["derive", "rc"] } # Serialization support
 bincode = "1.1.4" # RPC Serialization
 dashmap = "1.0.3" # Concurrent hashmap
-# TODO: Make sure we enable minimal required features for tracing and tracing futures
 tracing = "0.1.13" # Tracing ( like logging with spans and extra event data )
 tracing-futures = { version = "0.2.4", default-features = false, features = ["futures-03"] }
 uuid = { version = "0.8.1", features = ["serde", "v4"]} # UUID Generation
