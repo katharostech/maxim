@@ -252,8 +252,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    extern crate secc;
-    use secc::{SeccReceiver, SeccSender};
+    use crate::secc::{SeccReceiver, SeccSender};
     use serde::{Deserialize, Serialize};
 
     use super::*;

@@ -61,6 +61,7 @@ impl Game {
             // to the `GameManager`.
             results_aid
                 .send_new(GameMsg::new(ctx.aid.clone(), results_vec))
+                .await
                 .unwrap();
             // Because the `GameManager` is monitoring this actor, sending the `Stop` status
             // will inform the manager that this game is now completed.
@@ -153,6 +154,7 @@ impl GameManager {
                             .spawn()
                             .name(&name)
                             .with(game_conditions, Game::play)
+                            .await
                             .unwrap();
                         ctx.system.monitor(&ctx.aid, &aid);
                         aid.send_new(ctx.aid.clone()).unwrap();

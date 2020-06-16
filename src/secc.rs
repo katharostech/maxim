@@ -1,8 +1,10 @@
-//! Async SECC ( Skip Enabled Concurrent Channel ) implementation based on [`flume`].
+//! Async SECC ( Skip Enabled Concurrent Channel ) implementation based on [`async-channel`].
 //!
 //! This is the channel implementation used by actors to send and receive messages.
 
 use std::collections::VecDeque;
+
+use tracing::trace;
 
 /// Create an unbounded SECC channel
 ///
@@ -10,11 +12,11 @@ use std::collections::VecDeque;
 /// > must clone the value. Using an [`Arc`] is one way to do this.
 #[tracing::instrument]
 pub fn secc_unbounded<T: Clone>() -> (SeccSender<T>, SeccReceiver<T>) {
-    let (flume_sender, flume_receiver) = flume::unbounded();
+    let (raw_sender, raw_receiver) = async_channel::unbounded();
 
     (
-        SeccSender::new(flume_sender),
-        SeccReceiver::new(flume_receiver),
+        SeccSender::new(raw_sender),
+        SeccReceiver::new(raw_receiver),
     )
 }
 
@@ -24,43 +26,43 @@ pub fn secc_unbounded<T: Clone>() -> (SeccSender<T>, SeccReceiver<T>) {
 /// > must clone the value. Using an [`Arc`] is one way to do this.
 #[tracing::instrument]
 pub fn secc_bounded<T: Clone>(capacity: usize) -> (SeccSender<T>, SeccReceiver<T>) {
-    let (flume_sender, flume_receiver) = flume::bounded(capacity);
+    let (raw_sender, raw_receiver) = async_channel::bounded(capacity);
 
     (
-        SeccSender::new(flume_sender),
-        SeccReceiver::new(flume_receiver),
+        SeccSender::new(raw_sender),
+        SeccReceiver::new(raw_receiver),
     )
 }
 
-/// A SECC sender, which is actually just a newtype over a `flume::Sender`.
+/// A SECC sender, which is actually just a newtype over a `async_channel::Sender`.
 ///
 /// Implemented as a newtype just in case we have to add more to it later, so that we can modify
 /// its internals without breaking its usage.
 #[derive(Clone)]
-pub struct SeccSender<T>(flume::Sender<T>);
+pub struct SeccSender<T>(async_channel::Sender<T>);
 
 impl<T> SeccSender<T> {
-    // Create a [`SeccSender`] from a `flume` Sender.
-    fn new(sender: flume::Sender<T>) -> Self {
+    // Create a [`SeccSender`] from a `async_channel` Sender.
+    fn new(sender: async_channel::Sender<T>) -> Self {
         SeccSender(sender)
     }
 
-    /// See [`flume::Sender::send`].
-    pub fn send(&self, msg: T) -> Result<(), flume::SendError<T>> {
-        self.0.send(msg)
+    /// See [`async_channel::Sender::send`].
+    pub async fn send(&self, msg: T) -> Result<(), async_channel::SendError<T>> {
+        self.0.send(msg).await
     }
 
-    /// See [`flume::Sender::try_send`].
-    pub fn try_send(&self, msg: T) -> Result<(), flume::TrySendError<T>> {
+    /// See [`async_channel::Sender::try_send`].
+    pub fn try_send(&self, msg: T) -> Result<(), async_channel::TrySendError<T>> {
         self.0.try_send(msg)
     }
 }
 
-/// A receiver for a SECC channel. It is a wrapper around a flume reciever along with a skipped
+/// A receiver for a SECC channel. It is a wrapper around a async_channel reciever along with a skipped
 /// messages queue that is used to store any messages that are skipped with the skip function.
 pub struct SeccReceiver<T> {
-    /// The underlying flume channel receiver
-    receiver: flume::Receiver<T>,
+    /// The underlying async_channel channel receiver
+    receiver: async_channel::Receiver<T>,
     /// A message that has been received and peeked with `peek()`
     peeked_message: Option<T>,
     /// The queue of messages that have been skipped by the receiver
@@ -72,8 +74,8 @@ pub struct SeccReceiver<T> {
 }
 
 impl<T: Clone> SeccReceiver<T> {
-    // Create a [`SeccReceiver`] from a `flume` Receiver.
-    fn new(receiver: flume::Receiver<T>) -> Self {
+    // Create a [`SeccReceiver`] from a `async_channel` Receiver.
+    fn new(receiver: async_channel::Receiver<T>) -> Self {
         SeccReceiver {
             receiver,
             peeked_message: None,
@@ -85,7 +87,7 @@ impl<T: Clone> SeccReceiver<T> {
 
     /// Peek at the next message in the channel
     #[tracing::instrument(skip(self))]
-    pub async fn peek(&mut self) -> Result<T, flume::RecvError> {
+    pub async fn peek(&mut self) -> Result<T, async_channel::RecvError> {
         // If we already have a peeked message, return it
         if let Some(msg) = &self.peeked_message {
             trace!("Returning the value we have previously peeked at");
@@ -113,7 +115,7 @@ impl<T: Clone> SeccReceiver<T> {
         } else {
             // Get the next message in the channel
             trace!("Grabbing the next element in the channel");
-            let msg = self.receiver.recv_async().await?;
+            let msg = self.receiver.recv().await?;
 
             // Clone it and put it in our peeked message slot
             trace!("Sticking message in our peeked slot");
@@ -126,7 +128,7 @@ impl<T: Clone> SeccReceiver<T> {
 
     /// Receive the next message in the channel
     #[tracing::instrument(skip(self))]
-    pub async fn recv(&mut self) -> Result<T, flume::RecvError> {
+    pub async fn recv(&mut self) -> Result<T, async_channel::RecvError> {
         // If we are currently resetting
         if self.is_resetting {
             trace!("We are in the middle of resetting");
@@ -158,13 +160,13 @@ impl<T: Clone> SeccReceiver<T> {
         // Get the message from the channel
         } else {
             trace!("Getting next message from channel");
-            self.receiver.recv_async().await
+            self.receiver.recv().await
         }
     }
 
     /// Skip the next message in the channel
     #[tracing::instrument(skip(self))]
-    pub async fn skip(&mut self) -> Result<(), flume::RecvError> {
+    pub async fn skip(&mut self) -> Result<(), async_channel::RecvError> {
         // Get the message to skip
         let msg = 
             // If we have a peeked message skip that one
@@ -187,7 +189,7 @@ impl<T: Clone> SeccReceiver<T> {
             // Otherwise, get the next message from the channel and skip it
             } else {
                 trace!("Selecting the next message from the channel");
-                self.receiver.recv_async().await?
+                self.receiver.recv().await?
             };
 
         // Add it to the skipped message queue
@@ -207,6 +209,12 @@ impl<T: Clone> SeccReceiver<T> {
         self.reset_until = self.skipped.len();
         trace!(self.reset_until, "Resetting skips. Going into reset mode.")
     }
+
+    /// Gets the next receivable message and discards it, returning an error if the channel is empty
+    #[tracing::instrument(skip(self))]
+    pub async fn pop(&mut self) -> Result<(), async_channel::RecvError> {
+        self.recv().await.map(|_| ())
+    }
 }
 
 #[cfg(test)]
@@ -223,13 +231,6 @@ mod test {
         tracing_subscriber::fmt::try_init().ok();
     }
 
-    fn get_channel<T: Clone>(mode: Mode) -> (SeccSender<T>, SeccReceiver<T>) {
-        match mode {
-            Mode::Bounded(capacity) => secc_bounded(capacity),
-            Mode::Unbounded => secc_unbounded(),
-        }
-    }
-
     #[tracing::instrument]
     fn basic(mode: Mode) {
         smol::run(async move {
@@ -237,19 +238,19 @@ mod test {
             let (sender, mut receiver) = secc_bounded(100);
 
             // Send a message
-            sender.send(0).unwrap();
+            sender.send(0).await.unwrap();
 
             // Receive the message
             assert_eq!(receiver.recv().await.unwrap(), 0);
 
             // Send another message
-            sender.send(1).unwrap();
+            sender.send(1).await.unwrap();
 
             // Peek at the message
             assert_eq!(receiver.peek().await.unwrap(), 1);
 
             // Send another message
-            sender.send(2).unwrap();
+            sender.send(2).await.unwrap();
 
             // Peek at the message again ( it shouldn't change )
             assert_eq!(receiver.peek().await.unwrap(), 1);
@@ -261,10 +262,10 @@ mod test {
             assert_eq!(receiver.recv().await.unwrap(), 2);
 
             // Send 4 new messages
-            sender.send(3).unwrap();
-            sender.send(4).unwrap();
-            sender.send(5).unwrap();
-            sender.send(6).unwrap();
+            sender.send(3).await.unwrap();
+            sender.send(4).await.unwrap();
+            sender.send(5).await.unwrap();
+            sender.send(6).await.unwrap();
 
             // Peek at the next message
             assert_eq!(receiver.peek().await.unwrap(), 3);
@@ -294,11 +295,11 @@ mod test {
             assert_eq!(receiver.recv().await.unwrap(), 6);
 
             // Send 5 new messages
-            sender.send(7).unwrap();
-            sender.send(8).unwrap();
-            sender.send(9).unwrap();
-            sender.send(10).unwrap();
-            sender.send(11).unwrap();
+            sender.send(7).await.unwrap();
+            sender.send(8).await.unwrap();
+            sender.send(9).await.unwrap();
+            sender.send(10).await.unwrap();
+            sender.send(11).await.unwrap();
 
             // Skip the next two messages ( skips 7 and 8 )
             receiver.skip().await.unwrap();

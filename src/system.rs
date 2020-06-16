@@ -12,24 +12,24 @@
 use dashmap::DashMap;
 use once_cell::sync::OnceCell;
 use piper::ChangeNotifier;
-use secc::{SeccReceiver, SeccSender};
 use serde::{Deserialize, Serialize};
 use smol::{Task, Timer};
 use uuid::Uuid;
 
-use std::collections::{BinaryHeap, HashSet};
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 use std::thread;
 use std::thread::JoinHandle;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 #[cfg(feature = "actor-pool")]
 use crate::actors::ActorPoolBuilder;
-use crate::actors::{Actor, ActorBuilder, ActorStream};
+use crate::actors::{Actor, ActorBuilder, ActorChannelKind, ActorStream};
 use crate::prelude::*;
+use crate::secc::{SeccReceiver, SeccSender};
 use crate::system::system_actor::SystemActor;
 
 mod system_actor;
@@ -77,17 +77,6 @@ pub enum WireMessage {
         /// The message to be sent.
         message: Message,
     },
-    /// A container for sending a message with a specified duration delay.
-    DelayedActorMessage {
-        /// The duration to use to delay the message.
-        duration: Duration,
-        /// The UUID of the [`Aid`] that the message is being sent to.
-        actor_uuid: Uuid,
-        /// The UUID of the system that the destination [`Aid`] is local to.
-        system_uuid: Uuid,
-        /// The message to be sent.
-        message: Message,
-    },
 }
 
 /// Configuration structure for the Maxim actor system. Note that this configuration implements
@@ -95,13 +84,9 @@ pub enum WireMessage {
 /// means.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ActorSystemConfig {
-    /// The default size for the channel that is created for each actor. This can be overridden on
-    /// a per-actor basis during spawning as well. Making the default channel size bigger allows
-    /// for more bandwidth in sending messages to actors but also takes more memory. Also the
-    /// user should consider if their actor needs a large channel then it might need to be
-    /// refactored or the threads size should be increased because messages aren't being processed
-    /// fast enough. The default value for this is 32.
-    pub message_channel_size: u16,
+    /// The default channel kind that is created for each actor. This can be overridden on
+    /// a per-actor basis during spawning as well. See `[ActorChannelKind`].
+    pub default_channel_kind: ActorChannelKind,
     /// Max duration to wait between attempts to send to an actor's message channel. This is used
     /// to poll a busy channel that is at its capacity limit. The larger this value is, the longer
     /// `send` will wait for capacity in the channel but the user should be aware that if the
@@ -110,7 +95,7 @@ pub struct ActorSystemConfig {
     pub send_timeout: Duration,
     /// The size of the thread pool which governs how many worker threads there are in the system.
     /// The number of threads should be carefully considered to have sufficient parallelism but not
-    /// over-schedule the CPU on the target hardware. The default value is 4 * the number of logical
+    /// over-schedule the CPU on the target hardware. The default value is the number of logical
     /// CPUs.
     pub thread_pool_size: u16,
     /// The threshold at which the dispatcher thread will warn the user that the message took too
@@ -118,17 +103,6 @@ pub struct ActorSystemConfig {
     /// how their message processing works and refactor big tasks into a number of smaller tasks.
     /// The default value is 1 millisecond.
     pub warn_threshold: Duration,
-    /// This controls how long a processor will spend working on messages for an actor before
-    /// yielding to work on other actors in the system. The dispatcher will continue to pluck
-    /// messages off the actor's channel and process them until this time slice is exceeded. Note
-    /// that actors themselves can exceed this in processing a single message and if so, only one
-    /// message will be processed before yielding. The default value is 1 millisecond.
-    pub time_slice: Duration,
-    /// While Reactors will constantly attempt to get more work, they may run out. At that point,
-    /// they will idle for this duration, or until they get a wakeup notification. Said
-    /// notifications can be missed, so it's best to not set this too high. The default value is 10
-    /// milliseconds. This implementation is backed by a [`Condvar`].
-    pub thread_wait_time: Duration,
     /// Determines whether the actor system will immediately start when it is created. The default
     /// value is true.
     pub start_on_launch: bool,
@@ -136,8 +110,8 @@ pub struct ActorSystemConfig {
 
 impl ActorSystemConfig {
     /// Return a new config with the changed `message_channel_size`.
-    pub fn message_channel_size(mut self, value: u16) -> Self {
-        self.message_channel_size = value;
+    pub fn default_channel_kind(mut self, value: ActorChannelKind) -> Self {
+        self.default_channel_kind = value;
         self
     }
 
@@ -158,33 +132,18 @@ impl ActorSystemConfig {
         self.warn_threshold = value;
         self
     }
-
-    /// Return a new config with the changed `time_slice`.
-    pub fn time_slice(mut self, value: Duration) -> Self {
-        self.time_slice = value;
-        self
-    }
-
-    /// Return a new config with the changed `thread_wait_time`.
-    pub fn thread_wait_time(mut self, value: Duration) -> Self {
-        self.thread_wait_time = value;
-        self
-    }
 }
 
 impl Default for ActorSystemConfig {
     /// Create the config with the default values.
     fn default() -> ActorSystemConfig {
         ActorSystemConfig {
+            default_channel_kind: ActorChannelKind::Bounded(32),
             #[cfg(not(feature = "auto-num-threads"))]
-            thread_pool_size: 16, // Default to 4 times the assumed default number of CPUs ( 4 )
+            thread_pool_size: 4, // Default to the assumed default number of CPUs ( 4 )
             #[cfg(feature = "auto-num-threads")]
-            thread_pool_size: (num_cpus::get() * 4) as u16, // Run 4 times the number of detected CPUs
-
+            thread_pool_size: num_cpus::get() as u16,
             warn_threshold: Duration::from_millis(1),
-            time_slice: Duration::from_millis(1),
-            thread_wait_time: Duration::from_millis(100),
-            message_channel_size: 32,
             send_timeout: Duration::from_millis(1),
             start_on_launch: true,
         }
@@ -314,7 +273,7 @@ impl ActorSystem {
     }
 
     /// Starts an unstarted ActorSystem. The function will do nothing if the ActorSystem has already been started.
-    pub fn start(&self) {
+    pub async fn start(&self) {
         if !self
             .data
             .started
@@ -326,6 +285,7 @@ impl ActorSystem {
             self.spawn()
                 .name("System")
                 .with(SystemActor, SystemActor::processor)
+                .await
                 .unwrap();
         }
     }
@@ -570,7 +530,7 @@ impl ActorSystem {
     }
 
     // An internal helper to register an actor in the actor system.
-    pub(crate) fn register_actor(
+    pub(crate) async fn register_actor(
         &self,
         actor: Arc<Actor>,
         stream: ActorStream,
@@ -589,7 +549,7 @@ impl ActorSystem {
         actors_by_aid.insert(aid.clone(), actor);
         aids_by_uuid.insert(aid.uuid(), aid.clone());
         // self.data.executor.register_actor(stream);
-        aid.send(Message::new(SystemMsg::Start)).unwrap(); // Actor was just made
+        aid.send(Message::new(SystemMsg::Start)).await.unwrap(); // Actor was just made
         Ok(aid)
     }
 
@@ -617,7 +577,7 @@ impl ActorSystem {
         ActorBuilder {
             system: self.clone(),
             name: None,
-            channel_size: None,
+            channel_kind: self.data.config.default_channel_kind,
         }
     }
 
@@ -652,7 +612,7 @@ impl ActorSystem {
             ActorBuilder {
                 system: self.clone(),
                 name: None,
-                channel_size: None,
+                channel_kind: ActorChannelKind::Bounded(32),
             },
             count,
         )
@@ -670,7 +630,7 @@ impl ActorSystem {
 
     /// Internal implementation of stop_actor, so we have the ability to send an error along with
     /// the notification of stop.
-    pub(crate) fn internal_stop_actor(&self, aid: &Aid, error: impl Into<Option<StdError>>) {
+    pub(crate) async fn internal_stop_actor(&self, aid: &Aid, error: impl Into<Option<StdError>>) {
         {
             let actors_by_aid = &self.data.actors_by_aid;
             let aids_by_uuid = &self.data.aids_by_uuid;
@@ -692,12 +652,15 @@ impl ActorSystem {
                     aid: aid.clone(),
                     error: error.clone(),
                 };
-                m_aid.send(Message::new(value)).unwrap_or_else(|error| {
-                    error!(
-                        "Could not send 'Stopped' to monitoring actor {}: Error: {:?}",
-                        m_aid, error
-                    );
-                });
+                m_aid
+                    .send(Message::new(value))
+                    .await
+                    .unwrap_or_else(|error| {
+                        error!(
+                            "Could not send 'Stopped' to monitoring actor {}: Error: {:?}",
+                            m_aid, error
+                        );
+                    });
             }
         }
     }
@@ -753,12 +716,12 @@ impl ActorSystem {
 
     /// Asynchronously send a message to the system actors on all connected actor systems.
     // FIXME (Issue #72) Add try_send ability.
-    pub fn send_to_system_actors(&self, message: Message) {
+    pub async fn send_to_system_actors(&self, message: Message) {
         let remotes = &*self.data.remotes;
         trace!("Sending message to Remote System Actors");
         for remote in remotes.iter() {
             let aid = &remote.value().system_actor_aid;
-            aid.send(message.clone()).unwrap_or_else(|error| {
+            aid.send(message.clone()).await.unwrap_or_else(|error| {
                 error!("Could not send to system actor {}. Error: {}", aid, error)
             });
         }
