@@ -15,11 +15,11 @@ Current development on Maxim is focused on learning how the framework works and 
 
 Other things that we are thinking about changing are:
 
-- Using [Agnostik](https://github.com/bastion-rs/agnostik) as an executor to allow Maxim to run on any executor
-  - If Agnostik will not suffice for some reason we will probably switch to Tokio for the executor to avoid maintaining our own
-- Adding an optional macro for matching on message type
+- Using the [`smol`](https://docs.rs/smol) executor instead of using our own
+  - This will drastically simplify the implementation as a lot of the work is handled by the executor
 - Adding an option to use either bounded or unbounded channels for actor messages ( see "Design Principals of Maxim" below for more info )
-  - This woud probably involve using [Flume](https://github.com/zesterer/flume) for backing the channels
+  - This would probably involve using [Flume](https://github.com/zesterer/flume) for backing the channels
+- Adding an optional macro for matching on message type
 
 ## Getting Started
 
