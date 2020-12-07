@@ -8,7 +8,7 @@ pub use crate::actors::RandomAidPool;
 pub use crate::actors::Status;
 #[cfg(feature = "actor-pool")]
 pub use crate::actors::SyncAidPool;
-pub use crate::executor::ShutdownResult;
+// pub use crate::executor::ShutdownResult;
 pub use crate::message::Message;
 pub use crate::system::ActorSystem;
 pub use crate::system::ActorSystemConfig;

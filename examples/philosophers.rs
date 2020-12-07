@@ -21,8 +21,8 @@
 //! badly timed messages. This is largely up to the user.
 
 use maxim::prelude::*;
-use log::LevelFilter;
-use log::{error, info};
+use tracing::{error, info};
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::env;
@@ -438,17 +438,10 @@ struct EndSimulation {}
 /// actors.
 pub fn main() {
     let args: Vec<String> = env::args().collect();
-    let level = if args.contains(&"-v".to_string()) {
-        LevelFilter::Debug
-    } else {
-        LevelFilter::Info
-    };
 
-    env_logger::builder()
-        .filter_level(level)
-        .is_test(true)
-        .try_init()
-        .unwrap();
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::TRACE)
+        .init();
 
     // FIXME Let the user pass in the number of philosophers at the table, time slice
     // and runtime as command line parameters.

@@ -1,5 +1,4 @@
 use crate::prelude::*;
-use log::{debug, error};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -24,7 +23,7 @@ impl SystemActor {
                 // Note that you can't just unwrap or you could panic the dispatcher thread if
                 // there is a problem sending the reply. In this case, the error is logged but the
                 // actor moves on.
-                reply_to.send(reply).unwrap_or_else(|error| {
+                reply_to.send(reply).await.unwrap_or_else(|error| {
                     error!(
                         "Could not send reply to FindByName to actor {}. Error: {:?}",
                         reply_to, error

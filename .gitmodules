@@ -1,0 +1,3 @@
+[submodule "lib/piper"]
+	path = lib/piper
+	url = git@github.com:katharostech/piper.git

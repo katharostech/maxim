@@ -190,6 +190,10 @@
 //! See the License for the specific language governing permissions and
 //! limitations under the License.
 
+// Include the tracing macros globally
+#[macro_use]
+extern crate tracing;
+
 use std::any::Any;
 use std::error::Error;
 use std::fmt::{Display, Formatter};
@@ -198,9 +202,13 @@ use std::fmt::{Display, Formatter};
 pub use futures;
 use prelude::*;
 
+// Skip Enabled Concurrent Channels
+pub(crate) mod secc;
+
 pub mod actors;
-pub mod cluster;
-mod executor;
+// FIXME: Implement new async cluster support
+// pub mod cluster;
+// mod executor;
 pub mod message;
 pub mod system;
 
@@ -244,8 +252,7 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use log::LevelFilter;
-    use secc::{SeccReceiver, SeccSender};
+    use crate::secc::{SeccReceiver, SeccSender};
     use serde::{Deserialize, Serialize};
 
     use super::*;
@@ -285,10 +292,9 @@ mod tests {
     }
 
     pub fn init_test_log() {
-        let _ = env_logger::builder()
-            .filter_level(LevelFilter::Warn)
-            .is_test(true)
-            .try_init();
+        tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::TRACE)
+            .init();
     }
 
     pub fn sleep(millis: u64) {

@@ -73,6 +73,9 @@ allow = [
     "MIT",
     "Apache-2.0",
     "BSD-2-Clause",
+    # TODO: This the license for `wepoll-binding` and `wepoll-sys` and I'm
+    # pretty sure we don't mind MPL, but it would be good to double-check.
+    "MPL-2.0",
 ]
 # List of explictly disallowed licenses
 # See https://spdx.org/licenses/ for list of possible licenses

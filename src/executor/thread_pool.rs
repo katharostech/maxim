@@ -1,5 +1,4 @@
 use crate::executor::ShutdownResult;
-use log::{debug, error, trace};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::Duration;
