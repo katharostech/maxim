@@ -141,7 +141,7 @@ impl Message {
     /// use std::sync::Arc;
     ///
     /// let arc = Arc::new(11);
-    /// let msg = Message::new(arc);
+    /// let msg = Message::from_arc(arc);
     /// ```
     pub fn from_arc<T>(value: Arc<T>) -> Message
     where
