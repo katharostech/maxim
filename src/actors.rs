@@ -6,10 +6,8 @@
 //! are created by calling `system::spawn().with()` with any kind of function or closure that
 //! implements the `Processor` trait.
 
-use crate::message::ActorMessage;
-use crate::prelude::*;
+use async_trait::async_trait;
 use futures::{FutureExt, Stream};
-use log::{debug, error, trace, warn};
 #[cfg(feature = "actor-pool")]
 use rand::{
     distributions::{Distribution, Uniform},
@@ -17,10 +15,12 @@ use rand::{
 };
 #[cfg(feature = "actor-pool")]
 use rand_xoshiro::Xoshiro256Plus;
-use secc::*;
 use serde::de::Deserializer;
 use serde::ser::Serializer;
 use serde::{Deserialize, Serialize};
+use smol::Timer;
+use uuid::Uuid;
+
 use std::cell::UnsafeCell;
 use std::fmt::Debug;
 use std::future::Future;
@@ -33,7 +33,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::task::Poll;
 use std::time::Duration;
-use uuid::Uuid;
+
+use crate::message::ActorMessage;
+use crate::prelude::*;
+use crate::secc::{secc_bounded, secc_unbounded, SeccReceiver, SeccSender};
 
 /// Status of the message and potentially the actor as a resulting from processing a message
 /// with the actor.
@@ -109,19 +112,9 @@ pub enum AidError {
     /// only work on local Aid instances.
     AidNotLocal,
 
-    /// Used when unable to send to an actor's message channel within the scheduled timeout
-    /// configured in the actor system. This could result from the actor's channel being too
-    /// small to accommodate the message flow, the lack of thread count to process messages fast
-    /// enough to keep up with the flow or something wrong with the actor itself that it is
-    /// taking too long to clear the messages.
-    SendTimedOut(Aid),
-
-    /// Used when unable to schedule the actor for work in the work channel. This could be a
-    /// result of having a work channel that is too small to accommodate the number of actors
-    /// being concurrently scheduled, not enough threads to process actors in the channel fast
-    /// enough or simply an actor that misbehaves, causing dispatcher threads to take a lot of
-    /// time or not finish at all.
-    UnableToSchedule,
+    /// Channel error
+    /// TODO: Clarify error
+    ChannelError,
 }
 
 impl std::fmt::Display for AidError {
@@ -190,6 +183,74 @@ struct AidSerializedForm {
     system_uuid: Uuid,
     name: Option<String>,
 }
+
+/// The kind of channel that an actor will use for its messages. You can use either bounded
+/// channels with a configurable capacity or unbounded channels that will grow to fit however many
+/// messages are sent to it.
+///
+/// > **Note:** While unbounded channels are provided and allow you to have backlog/queue-like
+/// > actor message queues, it is best practice for actors to respond very quickly to the messages
+/// > are sent and to prevent backing messages up. If an actor cannot process the messages it is
+/// > sent fast enough, it should probably be broken into multiple smaller actors, or it should be
+/// > spawned in an [`AidPool`] in order to split up the load.
+// TODO: Move to actor.rs
+#[derive(Copy, Clone, Debug, Serialize, Deserialize)]
+pub enum ActorChannelKind {
+    /// A bounded channel with the specified capacity
+    Bounded(usize),
+    /// An unbounded channel
+    Unbounded,
+}
+
+/// Represents a pool of actor ids in which you don't care *which* actor recieves a
+/// message.
+///
+/// When a message is sent to a pool, only one actor in the pool will receive the message. Different
+/// [`AidPool`] implementations may have different ways of determining which actor to send a message
+/// to. The implmentation may send a message to a random actor or it may go in order, for example.
+///
+/// [`Aid`]'s also implement [`AidPool`] so an [`Aid`] can be used wherever a generic [`AidPool`] is
+/// expected.
+#[async_trait]
+pub trait AidPool {
+    /// See [`Aid::send`]
+    async fn send(&mut self, message: Message) -> Result<(), AidError>;
+
+    /// See [`Aid::send_arc`]
+    async fn send_arc<T>(&mut self, value: Arc<T>) -> Result<(), AidError>
+    where
+        T: 'static + ActorMessage;
+
+    /// See [`Aid::send_new`]
+    async fn send_new<T>(&mut self, value: T) -> Result<(), AidError>
+    where
+        T: 'static + ActorMessage;
+
+    /// See [`Aid::send_after`]
+    async fn send_after(&mut self, message: Message, duration: Duration) -> Result<(), AidError>;
+
+    /// See [`Aid::send_arc_after`]
+    async fn send_arc_after<T>(
+        &mut self,
+        value: Arc<T>,
+        duration: Duration,
+    ) -> Result<(), AidError>
+    where
+        T: 'static + ActorMessage;
+
+    /// See [`Aid::send_new_after`]
+    async fn send_new_after<T>(&mut self, value: T, duration: Duration) -> Result<(), AidError>
+    where
+        T: 'static + ActorMessage;
+}
+
+/// A helper trait that is simply an AidPool that can be passed between actors, i.e. it is
+/// `Sync + Send + Clone + 'static`. This is useful when you want to make a function generic over
+/// [`AidPool`] but you need to be able to give the poool to actor.
+pub trait SyncAidPool: AidPool + Sync + Send + Clone + 'static {}
+
+// Auto implement SyncAidPool for complying [`AidPool`]s
+impl<T: AidPool + Sync + Send + Clone + 'static> SyncAidPool for T {}
 
 /// Encapsulates an Actor ID and is used to send messages to the actor.
 ///
@@ -333,7 +394,7 @@ impl Aid {
     ///
     /// system.await_shutdown(None);
     /// ```
-    pub fn send(&self, message: Message) -> Result<(), AidError> {
+    pub async fn send(&self, message: Message) -> Result<(), AidError> {
         match &self.data.sender {
             ActorSender::Local {
                 stopped,
@@ -343,25 +404,22 @@ impl Aid {
                 if stopped.load(Ordering::Relaxed) {
                     Err(AidError::ActorAlreadyStopped)
                 } else {
-                    match sender.send_await_timeout(message, system.config().send_timeout) {
-                        Ok(_) => {
-                            if sender.receivable() == 1 {
-                                system.schedule(self.clone());
-                            };
-                            Ok(())
-                        }
-                        Err(_) => Err(AidError::SendTimedOut(self.clone())),
+                    match sender.send(message).await {
+                        Ok(_) => Ok(()),
+                        // TODO: Clarify this error
+                        Err(e) => Err(AidError::ChannelError),
                     }
                 }
             }
             ActorSender::Remote { sender } => {
                 sender
-                    .send_await(WireMessage::ActorMessage {
+                    .send(WireMessage::ActorMessage {
                         actor_uuid: self.data.uuid,
                         system_uuid: self.data.system_uuid,
                         message,
                     })
-                    .unwrap();
+                    .await
+                    .map_err(|_| AidError::ChannelError)?;
                 Ok(())
             }
         }
@@ -400,11 +458,11 @@ impl Aid {
     ///
     /// system.await_shutdown(None);
     /// ```
-    pub fn send_arc<T>(&self, value: Arc<T>) -> Result<(), AidError>
+    pub async fn send_arc<T>(&self, value: Arc<T>) -> Result<(), AidError>
     where
         T: 'static + ActorMessage,
     {
-        self.send(Message::from_arc(value))
+        self.send(Message::from_arc(value)).await
     }
 
     /// Shortcut for calling `send(Message::new(value))` This method will internally wrap
@@ -440,11 +498,11 @@ impl Aid {
     ///
     /// system.await_shutdown(None);
     /// ```
-    pub fn send_new<T>(&self, value: T) -> Result<(), AidError>
+    pub async fn send_new<T>(&self, value: T) -> Result<(), AidError>
     where
         T: 'static + ActorMessage,
     {
-        self.send(Message::new(value))
+        self.send(Message::new(value)).await
     }
 
     /// Schedules the given message to be sent after a minimum of the specified duration. Note
@@ -483,7 +541,11 @@ impl Aid {
     ///
     /// system.await_shutdown(None);
     /// ```
-    pub fn send_after(&self, message: Message, duration: Duration) -> Result<(), AidError> {
+    pub async fn send_after(&self, message: Message, delay: Duration) -> Result<(), AidError> {
+        // Pause for the given delay
+        Timer::after(delay).await;
+
+        // Send the message
         match &self.data.sender {
             ActorSender::Local {
                 stopped, system, ..
@@ -491,22 +553,21 @@ impl Aid {
                 if stopped.load(Ordering::Relaxed) {
                     Err(AidError::ActorAlreadyStopped)
                 } else {
-                    system.send_after(message, self.clone(), duration);
+                    system.send_after(message, self.clone(), delay);
                     Ok(())
                 }
             }
             ActorSender::Remote { sender } => {
-                if let Err(err) = sender.send_await(WireMessage::DelayedActorMessage {
-                    duration,
-                    actor_uuid: self.data.uuid,
-                    system_uuid: self.data.system_uuid,
-                    message,
-                }) {
-                    // Right now, this is the full extent of errors, but if that should change, it
-                    // should create a compiler error.
-                    return match err {
-                        SeccErrors::Full(_) | SeccErrors::Empty => Ok(()),
-                    };
+                if let Err(err) = sender
+                    .send(WireMessage::ActorMessage {
+                        actor_uuid: self.data.uuid,
+                        system_uuid: self.data.system_uuid,
+                        message,
+                    })
+                    .await
+                {
+                    // TODO: Clarify error
+                    return Err(AidError::ChannelError);
                 }
                 Ok(())
             }
@@ -547,11 +608,11 @@ impl Aid {
     ///
     /// system.await_shutdown(None);
     /// ```
-    pub fn send_arc_after<T>(&self, value: Arc<T>, duration: Duration) -> Result<(), AidError>
+    pub async fn send_arc_after<T>(&self, value: Arc<T>, duration: Duration) -> Result<(), AidError>
     where
         T: 'static + ActorMessage,
     {
-        self.send_after(Message::from_arc(value), duration)
+        self.send_after(Message::from_arc(value), duration).await
     }
 
     /// Shortcut for calling `send_after(Message::new(value))` This method will internally wrap
@@ -588,11 +649,11 @@ impl Aid {
     ///
     /// system.await_shutdown(None);
     /// ```
-    pub fn send_new_after<T>(&self, value: T, duration: Duration) -> Result<(), AidError>
+    pub async fn send_new_after<T>(&self, value: T, duration: Duration) -> Result<(), AidError>
     where
         T: 'static + ActorMessage,
     {
-        self.send_after(Message::new(value), duration)
+        self.send_after(Message::new(value), duration).await
     }
 
     /// The unique UUID for this actor within the entire cluster. The UUID for an [`Aid`]
@@ -639,23 +700,7 @@ impl Aid {
         }
     }
 
-    /// Determines how many messages the actor with the [`Aid`] has been sent. This method works only
-    /// for local [`Aid`]s, remote [`Aid`]s will return an error if this is called.
-    pub fn sent(&self) -> Result<usize, AidError> {
-        match &self.data.sender {
-            ActorSender::Local { sender, .. } => Ok(sender.sent()),
-            _ => Err(AidError::AidNotLocal),
-        }
-    }
-
-    /// Determines how many messages the actor with the [`Aid`] has received. This method works only
-    /// for local [`Aid`]s, remote [`Aid`]s will return an error if this is called.
-    pub fn received(&self) -> Result<usize, AidError> {
-        match &self.data.sender {
-            ActorSender::Local { sender, .. } => Ok(sender.received()),
-            _ => Err(AidError::AidNotLocal),
-        }
-    }
+    // TODO: Add sent() and received() functions again?
 
     /// Marks the actor referenced by the [`Aid`] as stopped and puts mechanisms in place to
     /// cause no more messages to be sent to the actor. Note that once stopped, an [`Aid`] can
@@ -678,53 +723,54 @@ impl Aid {
     }
 }
 
+#[async_trait]
 impl AidPool for Aid {
     /// See [`Aid::send`]
     #[inline]
-    fn send(&mut self, message: Message) -> Result<(), AidError> {
-        Aid::send(self, message)
+    async fn send(&mut self, message: Message) -> Result<(), AidError> {
+        Aid::send(self, message).await
     }
 
     /// See [`Aid::send_arc`]
     #[inline]
-    fn send_arc<T>(&mut self, value: Arc<T>) -> Result<(), AidError>
+    async fn send_arc<T>(&mut self, value: Arc<T>) -> Result<(), AidError>
     where
         T: 'static + ActorMessage,
     {
-        Aid::send_arc(self, value)
+        Aid::send_arc(self, value).await
     }
 
     /// See [`Aid::send_new`]
     #[inline]
-    fn send_new<T>(&mut self, value: T) -> Result<(), AidError>
+    async fn send_new<T>(&mut self, value: T) -> Result<(), AidError>
     where
         T: 'static + ActorMessage,
     {
-        Aid::send_new(self, value)
+        Aid::send_new(self, value).await
     }
 
     /// See [`Aid::send_after`]
     #[inline]
-    fn send_after(&mut self, message: Message, duration: Duration) -> Result<(), AidError> {
-        Aid::send_after(self, message, duration)
+    async fn send_after(&mut self, message: Message, duration: Duration) -> Result<(), AidError> {
+        Aid::send_after(self, message, duration).await
     }
 
     /// See [`Aid::send_arc_after`]
     #[inline]
-    fn send_arc_after<T>(&mut self, value: Arc<T>, duration: Duration) -> Result<(), AidError>
+    async fn send_arc_after<T>(&mut self, value: Arc<T>, duration: Duration) -> Result<(), AidError>
     where
         T: 'static + ActorMessage,
     {
-        Aid::send_arc_after(self, value, duration)
+        Aid::send_arc_after(self, value, duration).await
     }
 
     /// See [`Aid::send_new_after`]
     #[inline]
-    fn send_new_after<T>(&mut self, value: T, duration: Duration) -> Result<(), AidError>
+    async fn send_new_after<T>(&mut self, value: T, duration: Duration) -> Result<(), AidError>
     where
         T: 'static + ActorMessage,
     {
-        Aid::send_new_after(self, value, duration)
+        Aid::send_new_after(self, value, duration).await
     }
 }
 
@@ -757,46 +803,6 @@ impl Hash for Aid {
     }
 }
 
-/// Represents a pool of actor ids in which you don't care *which* actor recieves a
-/// message.
-///
-/// When a message is sent to a pool, only one actor in the pool will receive the message. Different
-/// [`AidPool`] implementations may have different ways of determining which actor to send a message
-/// to. The implmentation may send a message to a random actor or it may go in order, for example.
-///
-/// [`Aid`]'s also implement [`AidPool`] so an [`Aid`] can be used wherever a generic [`AidPool`] is
-/// expected.
-pub trait AidPool {
-    /// See [`Aid::send`]
-    fn send(&mut self, message: Message) -> Result<(), AidError>;
-    /// See [`Aid::send_arc`]
-    fn send_arc<T>(&mut self, value: Arc<T>) -> Result<(), AidError>
-    where
-        T: 'static + ActorMessage;
-    /// See [`Aid::send_new`]
-    fn send_new<T>(&mut self, value: T) -> Result<(), AidError>
-    where
-        T: 'static + ActorMessage;
-    /// See [`Aid::send_after`]
-    fn send_after(&mut self, message: Message, duration: Duration) -> Result<(), AidError>;
-    /// See [`Aid::send_arc_after`]
-    fn send_arc_after<T>(&mut self, value: Arc<T>, duration: Duration) -> Result<(), AidError>
-    where
-        T: 'static + ActorMessage;
-    /// See [`Aid::send_new_after`]
-    fn send_new_after<T>(&mut self, value: T, duration: Duration) -> Result<(), AidError>
-    where
-        T: 'static + ActorMessage;
-}
-
-/// A helper trait that is simply an AidPool that can be passed between actors, i.e. it is
-/// `Sync + Send + Clone + 'static`. This is useful when you want to make a function generic over
-/// [`AidPool`] but you need to be able to give the poool to actor.
-pub trait SyncAidPool: AidPool + Sync + Send + Clone + 'static {}
-
-// Auto implement SyncAidPool for complying [`AidPool`]s
-impl<T: AidPool + Sync + Send + Clone + 'static> SyncAidPool for T {}
-
 /// An [`AidPool`] that sends messages to a random [`Aid`] in the pool.
 #[derive(Debug)]
 #[cfg(feature = "actor-pool")]
@@ -824,53 +830,70 @@ impl RandomAidPool {
 }
 
 #[cfg(feature = "actor-pool")]
+#[async_trait]
 impl AidPool for RandomAidPool {
     /// See [`Aid::send`]
     #[inline]
-    fn send(&mut self, message: Message) -> Result<(), AidError> {
-        self.aids[self.uniform.sample(&mut self.rng)].send(message)
+    async fn send(&mut self, message: Message) -> Result<(), AidError> {
+        self.aids[self.uniform.sample(&mut self.rng)]
+            .send(message)
+            .await
     }
 
     /// See [`Aid::send_arc`]
     #[inline]
-    fn send_arc<T>(&mut self, value: Arc<T>) -> Result<(), AidError>
+    async fn send_arc<T>(&mut self, value: Arc<T>) -> Result<(), AidError>
     where
         T: 'static + ActorMessage,
     {
-        self.aids[self.uniform.sample(&mut self.rng)].send_arc(value)
+        self.aids[self.uniform.sample(&mut self.rng)]
+            .send_arc(value)
+            .await
     }
 
     /// See [`Aid::send_new`]
     #[inline]
-    fn send_new<T>(&mut self, value: T) -> Result<(), AidError>
+    async fn send_new<T>(&mut self, value: T) -> Result<(), AidError>
     where
         T: 'static + ActorMessage,
     {
-        self.aids[self.uniform.sample(&mut self.rng)].send_new(value)
+        self.aids[self.uniform.sample(&mut self.rng)]
+            .send_new(value)
+            .await
     }
 
     /// See [`Aid::send_after`]
     #[inline]
-    fn send_after(&mut self, message: Message, duration: Duration) -> Result<(), AidError> {
-        self.aids[self.uniform.sample(&mut self.rng)].send_after(message, duration)
+    async fn send_after(&mut self, message: Message, duration: Duration) -> Result<(), AidError> {
+        self.aids[_self.uniform.sample(&mut self.rng)]
+            .send_after(message, duration)
+            .await
     }
 
     /// See [`Aid::send_arc_after`]
     #[inline]
-    fn send_arc_after<T>(&mut self, value: Arc<T>, duration: Duration) -> Result<(), AidError>
+    async fn send_arc_after<'a, T>(
+        &'a mut self,
+        value: Arc<T>,
+        duration: Duration,
+    ) -> Result<(), AidError>
     where
         T: 'static + ActorMessage,
     {
-        self.aids[self.uniform.sample(&mut self.rng)].send_arc_after(value, duration)
+        self.aids[_self.uniform.sample(&mut self.rng)]
+            .send_arc_after(value, duration)
+            .await
     }
 
     /// See [`Aid::send_new_after`]
     #[inline]
-    fn send_new_after<T>(&mut self, value: T, duration: Duration) -> Result<(), AidError>
+    async fn send_new_after<T>(&mut self, value: T, duration: Duration) -> Result<(), AidError>
     where
         T: 'static + ActorMessage,
     {
-        self.aids[self.uniform.sample(&mut self.rng)].send_new_after(value, duration)
+        self.aids[self.uniform.sample(&mut self.rng)]
+            .send_new_after(value, duration)
+            .await
     }
 }
 
@@ -971,7 +994,7 @@ pub struct ActorBuilder {
     pub name: Option<String>,
     /// The size of the message channel for the actor which defaults to `None`; meaning the
     /// default for the actor system will be used for the message channel.
-    pub channel_size: Option<u16>,
+    pub channel_kind: ActorChannelKind,
 }
 
 impl ActorBuilder {
@@ -980,7 +1003,7 @@ impl ActorBuilder {
     /// `ActorSystem::spawn` for more information and examples.
     ///
     // FIXME Consider implementing `using` to spawn a stateless actor.
-    pub fn with<F, S, R>(self, state: S, processor: F) -> Result<Aid, SystemError>
+    pub async fn with<F, S, R>(self, state: S, processor: F) -> Result<Aid, SystemError>
     where
         S: Send + Sync + 'static,
         R: Future<Output = ActorResult<S>> + Send + 'static,
@@ -988,7 +1011,7 @@ impl ActorBuilder {
     {
         let (actor, stream) = Actor::new(self.system.clone(), &self, state, processor);
         debug!("Actor created: {}", actor.context.aid.uuid());
-        self.system.register_actor(actor, stream)
+        self.system.register_actor(actor, stream).await
     }
 
     /// Set the name of the actor to the given string.
@@ -1000,9 +1023,8 @@ impl ActorBuilder {
     /// Set the size of the channel to the given value instead of the default for the actor system
     /// that the actor is spawned on. Note that passing a value less than 1 will cause a panic and
     /// there would be little reason to do so anyway.
-    pub fn channel_size(mut self, size: u16) -> Self {
-        assert!(size > 0);
-        self.channel_size = Some(size);
+    pub fn channel_kind(mut self, kind: ActorChannelKind) -> Self {
+        self.channel_kind = kind;
         self
     }
 }
@@ -1026,7 +1048,7 @@ impl ActorPoolBuilder {
     }
 
     /// See [`ActorBuilder::with`]
-    pub fn with<F, S, R, P>(self, state: S, processor: F) -> Result<P, SystemError>
+    pub async fn with<F, S, R, P>(self, state: S, processor: F) -> Result<P, SystemError>
     where
         S: Clone + Send + Sync + 'static,
         R: Future<Output = ActorResult<S>> + Send + 'static,
@@ -1040,7 +1062,7 @@ impl ActorPoolBuilder {
             // Add index as name suffix
             b.name = b.name.map(|name| format!("{}_{}", name, i));
             // Add aid to list
-            aids.push(b.with(state.clone(), processor.clone())?)
+            aids.push(b.with(state.clone(), processor.clone()).await?)
         }
 
         // Return an `AidPool` from the list of `Aid`s
@@ -1058,8 +1080,8 @@ impl ActorPoolBuilder {
     }
 
     /// See [`ActorBuilder::channel_size`]
-    pub fn channel_size(mut self, size: u16) -> Self {
-        self.builder = self.builder.channel_size(size);
+    pub fn channel_kind(mut self, kind: ActorChannelKind) -> Self {
+        self.builder = self.builder.channel_kind(kind);
         self
     }
 }
@@ -1116,12 +1138,10 @@ impl Actor {
         R: Future<Output = ActorResult<S>> + Send + 'static,
         F: Processor<S, R> + 'static,
     {
-        let (sender, receiver) = secc::create::<Message>(
-            builder
-                .channel_size
-                .unwrap_or(system.config().message_channel_size),
-            Duration::from_millis(10),
-        );
+        let (sender, receiver) = match builder.channel_kind {
+            ActorChannelKind::Bounded(capacity) => secc_bounded(capacity),
+            ActorChannelKind::Unbounded => secc_unbounded(),
+        };
 
         // The sender will be put inside the actor id.
         let aid = Aid {
@@ -1193,7 +1213,7 @@ impl ActorStream {
     /// This takes the result and executes the subsequent steps in respect to the result. Namely,
     /// handling the Actor's message channel and informing the ActorSystem of errors. Returns
     /// whether the Actor is stopping or not.
-    pub(crate) fn handle_result(&self, result: Result<Status, StdError>) -> bool {
+    pub(crate) async fn handle_result(&mut self, result: Result<Status, StdError>) -> bool {
         let mut stopping = false;
 
         match result {
@@ -1202,33 +1222,33 @@ impl ActorStream {
                     "Actor {} finished processing a message",
                     self.context.aid.uuid()
                 );
-                self.receiver.pop().unwrap()
+                self.receiver.pop().await.unwrap()
             }
             Ok(Status::Skip) => {
                 trace!(
                     "Actor {} skipped processing a message",
                     self.context.aid.uuid()
                 );
-                self.receiver.skip().unwrap()
+                self.receiver.skip().await.unwrap()
             }
             Ok(Status::Reset) => {
                 trace!(
                     "Actor {} finished processing a message and reset the cursor",
                     self.context.aid.uuid()
                 );
-                self.receiver.pop().unwrap();
-                self.receiver.reset_skip().unwrap();
+                self.receiver.pop().await.unwrap();
+                self.receiver.reset_skip();
             }
             Ok(Status::Stop) => {
                 debug!("Actor \"{}\" stopping", self.context.aid.name_or_uuid());
-                self.receiver.pop().unwrap();
+                self.receiver.pop().await.unwrap();
                 self.context
                     .system
                     .internal_stop_actor(&self.context.aid, None);
                 stopping = true;
             }
             Err(e) => {
-                self.receiver.pop().unwrap();
+                self.receiver.pop().await.unwrap();
                 error!(
                     "[{}] returned an error when processing: {}",
                     self.context.aid, &e
@@ -1252,85 +1272,84 @@ impl ActorStream {
     }
 }
 
-/// The meat of the Actor's handling
-impl Stream for ActorStream {
-    type Item = Result<Status, StdError>;
+// /// The meat of the Actor's handling
+// impl Stream for ActorStream {
+//     type Item = Result<Status, StdError>;
 
-    fn poll_next(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> Poll<Option<Self::Item>> {
-        trace!("Actor {} is being polled", self.context.aid.name_or_uuid());
-        // If we have a pending future, that's what we poll.
-        if let Some(pending) = self.pending.as_mut() {
-            // Poll, ensure we respect stopping condition.
-            let poll = pending
-                .as_mut()
-                .poll(cx)
-                .map(|r| Some(self.overwrite_on_stop(r)));
+//     fn poll_next(
+//         mut self: Pin<&mut Self>,
+//         cx: &mut std::task::Context<'_>,
+//     ) -> Poll<Option<Self::Item>> {
+//         trace!("Actor {} is being polled", self.context.aid.name_or_uuid());
+//         // If we have a pending future, that's what we poll.
+//         if let Some(pending) = self.pending.as_mut() {
+//             // Poll, ensure we respect stopping condition.
+//             let poll = pending
+//                 .as_mut()
+//                 .poll(cx)
+//                 .map(|r| Some(self.overwrite_on_stop(r)));
 
-            if let Poll::Pending = &poll {
-                trace!("Actor {} is pending", self.context.aid.uuid());
-            } else {
-                drop(self.pending.take());
-            }
+//             if let Poll::Pending = &poll {
+//                 trace!("Actor {} is pending", self.context.aid.uuid());
+//             } else {
+//                 drop(self.pending.take());
+//             }
 
-            poll
-        } else {
-            // Are we stopped? If so, we should not have been polled, panic. This is only acceptable
-            // because it means a bug in the Executor or Reactor.
-            if self.stopping {
-                panic!("Stopped ActorStream was polled after stopping. Please open a bug report.")
-            }
-            // Else, we go for another.
-            match self.receiver.peek() {
-                Ok(msg) => {
-                    // We're stopping after this future, mark as such
-                    if let Some(m) = msg.content_as::<SystemMsg>() {
-                        if let SystemMsg::Stop = *m {
-                            trace!("Actor {} received stop message", self.context.aid.uuid());
-                            self.stopping = true;
-                        }
-                    }
+//             poll
+//         } else {
+//             // Are we stopped? If so, we should not have been polled, panic. This is only acceptable
+//             // because it means a bug in the Executor or Reactor.
+//             if self.stopping {
+//                 panic!("Stopped ActorStream was polled after stopping. Please open a bug report.")
+//             }
+//             // Else, we go for another.
+//             match self.receiver.peek().await {
+//                 Ok(msg) => {
+//                     // We're stopping after this future, mark as such
+//                     if let Some(m) = msg.content_as::<SystemMsg>() {
+//                         if let SystemMsg::Stop = *m {
+//                             trace!("Actor {} received stop message", self.context.aid.uuid());
+//                             self.stopping = true;
+//                         }
+//                     }
 
-                    // Get the next future
-                    let ctx = self.context.clone();
-                    let mut future = (&mut self.handler)(ctx, msg);
-                    // Just. give it a ~~wave~~ poll!!
-                    match future.as_mut().poll(cx) {
-                        Poll::Ready(r) => Poll::Ready(Some(self.overwrite_on_stop(r))),
-                        Poll::Pending => {
-                            trace!("Actor {} is pending", self.context.aid.uuid());
-                            self.pending = Some(future);
-                            Poll::Pending
-                        }
-                    }
-                }
-                Err(err) => match err {
-                    // Ready(None) is standard for "Stream is depleted". The stream is effectively
-                    // monadic around the message queue, so if the channel is depleted, the stream
-                    // is as well. `Full` is non-contextual.
-                    //
-                    // While this is exhaustive, we're avoiding a catchall to in anticipation of
-                    // future Secc errors we would *want* to handle.
-                    SeccErrors::Empty | SeccErrors::Full(_) => {
-                        trace!(
-                            "Actor `{}` has no more messages, return to sleep",
-                            self.context.aid.name_or_uuid()
-                        );
-                        Poll::Ready(None)
-                    }
-                },
-            }
-        }
-    }
-}
+//                     // Get the next future
+//                     let ctx = self.context.clone();
+//                     let mut future = (&mut self.handler)(ctx, msg);
+//                     // Just. give it a ~~wave~~ poll!!
+//                     match future.as_mut().poll(cx) {
+//                         Poll::Ready(r) => Poll::Ready(Some(self.overwrite_on_stop(r))),
+//                         Poll::Pending => {
+//                             trace!("Actor {} is pending", self.context.aid.uuid());
+//                             self.pending = Some(future);
+//                             Poll::Pending
+//                         }
+//                     }
+//                 }
+//                 Err(err) => match err {
+//                     // Ready(None) is standard for "Stream is depleted". The stream is effectively
+//                     // monadic around the message queue, so if the channel is depleted, the stream
+//                     // is as well. `Full` is non-contextual.
+//                     //
+//                     // While this is exhaustive, we're avoiding a catchall to in anticipation of
+//                     // future Secc errors we would *want* to handle.
+//                     SeccErrors::Empty | SeccErrors::Full(_) => {
+//                         trace!(
+//                             "Actor `{}` has no more messages, return to sleep",
+//                             self.context.aid.name_or_uuid()
+//                         );
+//                         Poll::Ready(None)
+//                     }
+//                 },
+//             }
+//         }
+//     }
+// }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::tests::*;
-    use log::*;
     use std::thread;
     use std::time::Instant;
 
@@ -1437,6 +1456,7 @@ mod tests {
     /// instead of panic.
     #[test]
     fn test_aid_serialization() {
+        unimplemented!("FIXME: Re-implement cluster support.");
         let system = ActorSystem::create(ActorSystemConfig::default().thread_pool_size(2));
         let aid1 = system.spawn().with((), simple_handler).unwrap();
         system.init_current(); // Required by Aid serialization.
@@ -1467,7 +1487,7 @@ mod tests {
             let system2 = ActorSystem::create(ActorSystemConfig::default().thread_pool_size(2));
             system2.init_current();
             // Connect the systems so the remote channel can be used.
-            ActorSystem::connect_with_channels(&system, &system2);
+            // ActorSystem::connect_with_channels(&system, &system2);
 
             let deserialized: Aid = bincode::deserialize(&aid1_serialized).unwrap();
             match deserialized.data.sender {
@@ -1484,7 +1504,7 @@ mod tests {
 
             // Disconnecting the remote then attempting to deserialize the Aid should result in a
             // deserialization error.
-            system2.disconnect(aid1.system_uuid()).unwrap();
+            // system2.disconnect(aid1.system_uuid()).unwrap();
             let aid1_deserialized = bincode::deserialize::<Aid>(&aid1_serialized);
             assert!(aid1_deserialized.is_err());
         });

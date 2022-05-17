@@ -9,7 +9,6 @@
 //! robust and well tested like the rest of Maxim.
 
 use crate::prelude::*;
-use log::{error, info};
 use secc::*;
 use std::collections::HashMap;
 use std::io::prelude::*;
